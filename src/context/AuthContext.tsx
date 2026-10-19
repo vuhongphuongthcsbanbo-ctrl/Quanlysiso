@@ -41,12 +41,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const users = storageService.getUsers();
     const cleanInput = usernameOrEmail.trim().toLowerCase();
 
-    const user = users.find(
-      u => (u.username && u.username.toLowerCase() === cleanInput) || (u.email && u.email.toLowerCase() === cleanInput)
-    );
+    const user = users.find(u => {
+      const uUser = (u.username || '').toLowerCase().trim();
+      const uEmail = (u.email || '').toLowerCase().trim();
+      const uName = (u.name || '').toLowerCase().trim();
+      const uFullName = (u.fullName || '').toLowerCase().trim();
+      const uClass = (u.assignedClassName || '').toLowerCase().trim();
+      const uId = (u.id || '').toLowerCase().trim();
+      return (
+        uUser === cleanInput ||
+        uEmail === cleanInput ||
+        uName === cleanInput ||
+        uFullName === cleanInput ||
+        uClass === cleanInput ||
+        `lớp ${uClass}` === cleanInput ||
+        `gvcn ${uClass}` === cleanInput ||
+        uId === cleanInput
+      );
+    });
 
     if (!user) {
-      return { success: false, message: 'Tên đăng nhập hoặc email không tồn tại trong hệ thống.' };
+      return { success: false, message: 'Tên giáo viên, email hoặc lớp không tồn tại trong hệ thống.' };
     }
 
     // Kiểm tra khóa tài khoản / kích hoạt

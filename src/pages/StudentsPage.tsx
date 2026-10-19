@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   ArrowRightLeft,
   AlertCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { ConfirmDialog } from '../theme/designSystem';
 
@@ -29,7 +30,7 @@ interface StudentsPageProps {
 }
 
 export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfile, onNavigate }) => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, currentUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [students, setStudents] = useState<Student[]>(() => storageService.getStudents());
@@ -64,6 +65,9 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
   const [isBatchOpen, setIsBatchOpen] = useState(false);
   const [batchClassId, setBatchClassId] = useState<string>(classes[0]?.id || '');
   const [batchText, setBatchText] = useState('');
+
+  // Delete All Modal
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
 
   // Import feedback
   const [importNotice, setImportNotice] = useState<string | null>(null);
@@ -183,6 +187,19 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
     storageService.addAuditLog('Quản trị viên', `Xóa học sinh ${stu.fullName}`, 'student', 'XÓA HỌC SINH');
     setStudents(storageService.getStudents());
     setDeletingStudent(null);
+  };
+
+  const executeDeleteAllStudents = () => {
+    const res = storageService.deleteAllStudents(currentUser?.name || 'Quản trị viên');
+    setStudents([]);
+    setIsDeleteAllModalOpen(false);
+    setImportNotice(`Đã xóa sạch toàn bộ ${res.count} học sinh trong hệ thống thành công. Sĩ số các lớp đã được đặt lại về 0.`);
+  };
+
+  const handleRestoreDefaultStudents = () => {
+    const res = storageService.restoreDefaultStudents(currentUser?.name || 'Quản trị viên');
+    setStudents(storageService.getStudents());
+    setImportNotice(`Đã khôi phục thành công toàn bộ ${res.count} học sinh danh sách gốc của 20 lớp Trường THCS Bản Bo!`);
   };
 
   // Batch Add handler
@@ -332,6 +349,16 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
               <Plus className="w-4 h-4" />
               <span>Thêm 1 học sinh</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setIsDeleteAllModalOpen(true)}
+              className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 hover:border-rose-300 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+              title="Xóa toàn bộ danh sách học sinh của tất cả các lớp"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              <span>Xóa tất cả học sinh</span>
+            </button>
           </div>
         )}
       </div>
@@ -463,16 +490,26 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
                       <p className="text-xs text-slate-500 leading-relaxed">
                         Toàn bộ học sinh mẫu thử nghiệm đã được dọn sạch. Bạn hãy tải lên tệp Excel danh sách học sinh chuẩn của Trường THCS Bản Bo.
                       </p>
-                      {onNavigate && (
+                      <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                        {onNavigate && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('import_students')}
+                            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                          >
+                            <Upload className="w-4 h-4" />
+                            <span>Tải lên file học sinh chuẩn (.xls / .xlsx)</span>
+                          </button>
+                        )}
                         <button
                           type="button"
-                          onClick={() => onNavigate('import_students')}
-                          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 cursor-pointer shadow-xs"
+                          onClick={handleRestoreDefaultStudents}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold inline-flex items-center gap-2 cursor-pointer border border-slate-300"
                         >
-                          <Upload className="w-4 h-4" />
-                          <span>Tải lên file học sinh chuẩn (.xls / .xlsx)</span>
+                          <RotateCcw className="w-4 h-4 text-slate-500" />
+                          <span>Khôi phục 629 học sinh danh sách gốc của trường</span>
                         </button>
-                      )}
+                      </div>
                     </div>
                   </td>
                 </tr>
@@ -813,7 +850,7 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
         </div>
       )}
 
-      {/* Confirm Delete Student Dialog */}
+      {/* Confirm Delete Single Student Dialog */}
       <ConfirmDialog
         isOpen={Boolean(deletingStudent)}
         title="XÓA HỌC SINH"
@@ -823,6 +860,18 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
         variant="danger"
         onConfirm={executeDeleteStudent}
         onCancel={() => setDeletingStudent(null)}
+      />
+
+      {/* Confirm Delete ALL Students Dialog */}
+      <ConfirmDialog
+        isOpen={isDeleteAllModalOpen}
+        title="XÁC NHẬN XÓA TẤT CẢ HỌC SINH"
+        message={`CẢNH BÁO QUAN TRỌNG: Thầy/Cô có chắc chắn muốn xóa TOÀN BỘ ${students.length} học sinh của tất cả 20 lớp trong hệ thống không? Toàn bộ danh sách học sinh sẽ được xóa sạch và sĩ số các lớp sẽ đưa về 0 để nhà trường nhập danh sách mới. Hành động này KHÔNG THỂ HOÀN TÁC!`}
+        confirmLabel="XÓA TẤT CẢ HỌC SINH"
+        cancelLabel="HỦY BỎ"
+        variant="danger"
+        onConfirm={executeDeleteAllStudents}
+        onCancel={() => setIsDeleteAllModalOpen(false)}
       />
     </div>
   );

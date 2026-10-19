@@ -176,9 +176,29 @@ class StorageService {
         });
       }
 
+      // Đảm bảo 20 GVCN chính thức luôn có mặt trong usersList và ở trạng thái KÍCH HOẠT (ACTIVE)
+      for (const initUser of INITIAL_USERS) {
+        const existing = usersList.find(
+          u => u.id === initUser.id || (u.email && u.email.toLowerCase() === initUser.email.toLowerCase())
+        );
+        if (!existing) {
+          usersList.push({ ...initUser });
+        } else {
+          // Cập nhật đúng vai trò và trạng thái
+          existing.name = initUser.name;
+          existing.fullName = initUser.fullName;
+          existing.assignedClassId = initUser.assignedClassId;
+          existing.assignedClassName = initUser.assignedClassName;
+          existing.title = initUser.title;
+          existing.role = initUser.role;
+          existing.accountStatus = 'ACTIVE';
+          existing.isActive = true;
+        }
+      }
+
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(usersList));
 
-      // Cập nhật danh sách giáo viên nếu có tch_bgh
+      // Cập nhật danh sách giáo viên
       const rawTeachers = localStorage.getItem(STORAGE_KEYS.TEACHERS);
       if (rawTeachers) {
         let tList: any[] = JSON.parse(rawTeachers);
@@ -190,8 +210,13 @@ class StorageService {
           bghTch.role = 'BOARD_OF_MANAGEMENT';
           bghTch.notes = 'Hiệu trưởng Trường THCS Bản Bo';
           bghTch.accountStatus = 'ACTIVE';
-          localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(tList));
         }
+        // Đảm bảo 20 GVCN trong TEACHERS đều ACTIVE
+        tList = tList.map(t => ({
+          ...t,
+          accountStatus: 'ACTIVE',
+        }));
+        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(tList));
       }
     } catch {
       // ignore
@@ -201,10 +226,11 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
     }
 
-    // Tự động kiểm tra và phục hồi danh sách học sinh từ key legacy 'thcs_banbo_students' nếu key v2 bị trống
+    // Kiểm tra danh sách học sinh: Nếu người dùng đã chủ động xóa tất cả học sinh thì giữ nguyên danh sách rỗng
+    const studentsClearedByUser = localStorage.getItem('thcs_banbo_all_students_deleted_by_user') === 'true';
     let currentStudents: Student[] = [];
     const rawV2 = localStorage.getItem(STORAGE_KEYS.STUDENTS);
-    if (rawV2) {
+    if (rawV2 !== null) {
       try {
         currentStudents = JSON.parse(rawV2);
       } catch {
@@ -212,8 +238,8 @@ class StorageService {
       }
     }
 
-    // Đảm bảo 20 lớp của Trường THCS Bản Bo luôn có đầy đủ danh sách học sinh và phân loại bán trú
-    if (!Array.isArray(currentStudents) || currentStudents.length === 0) {
+    // Chỉ tự động nạp dữ liệu gốc khi chưa từng khởi tạo và người dùng chưa từng bấm xóa tất cả
+    if (rawV2 === null && !studentsClearedByUser) {
       currentStudents = INITIAL_STUDENTS;
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
@@ -646,6 +672,76 @@ class StorageService {
   public saveAllStudents(students: Student[]) {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+  }
+
+  /**
+   * XÓA TOÀN BỘ TẤT CẢ HỌC SINH TRONG HỆ THỐNG
+   * Đưa danh sách học sinh về 0 để nhà trường nhập danh sách chính thức mới
+   */
+  public deleteAllStudents(performedByName: string = 'Quản trị viên'): { success: boolean; count: number } {
+    const prev = this.getStudents();
+    const count = prev.length;
+    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify([]));
+    localStorage.setItem('thcs_banbo_students', JSON.stringify([]));
+    localStorage.setItem('thcs_banbo_all_students_deleted_by_user', 'true');
+
+    // Đặt lại số lượng học sinh của 20 lớp chính thức về 0
+    const classes = this.getClasses();
+    const updatedClasses = classes.map(c => ({
+      ...c,
+      totalStudents: 0,
+      maleCount: 0,
+      femaleCount: 0,
+      boardingCount: 0,
+      nonBoardingCount: 0,
+      dayCount: 0,
+    }));
+    localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
+    localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
+
+    this.addAuditLog(
+      performedByName,
+      `Đã xóa toàn bộ ${count} học sinh trong hệ thống. Sĩ số các lớp được đặt lại về 0 để sẵn sàng tải tệp danh sách mới.`,
+      'student',
+      'XÓA TẤT CẢ HỌC SINH'
+    );
+
+    return { success: true, count };
+  }
+
+  /**
+   * Khôi phục lại 629 học sinh danh sách gốc của 20 lớp Trường THCS Bản Bo
+   */
+  public restoreDefaultStudents(performedByName: string = 'Quản trị viên'): { success: boolean; count: number } {
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
+    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
+    localStorage.setItem('thcs_banbo_students', JSON.stringify(INITIAL_STUDENTS));
+    const classes = this.getClasses();
+    const updatedClasses = classes.map(c => {
+      const clsStudents = INITIAL_STUDENTS.filter(s => s.className === c.name && s.status === 'active');
+      const boardingCount = clsStudents.filter(s => s.boardingType === 'BOARDING' || s.studentType === 'boarding').length;
+      const maleCount = clsStudents.filter(s => s.gender === 'male').length;
+      const femaleCount = clsStudents.filter(s => s.gender === 'female').length;
+      return {
+        ...c,
+        totalStudents: clsStudents.length,
+        boardingCount,
+        nonBoardingCount: clsStudents.length - boardingCount,
+        dayCount: clsStudents.length - boardingCount,
+        maleCount,
+        femaleCount,
+      };
+    });
+    localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
+    localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
+
+    this.addAuditLog(
+      performedByName,
+      `Đã khôi phục thành công ${INITIAL_STUDENTS.length} học sinh chính thức của 20 lớp Trường THCS Bản Bo.`,
+      'student',
+      'KHÔI PHỤC HỌC SINH'
+    );
+    return { success: true, count: INITIAL_STUDENTS.length };
   }
 
   /**

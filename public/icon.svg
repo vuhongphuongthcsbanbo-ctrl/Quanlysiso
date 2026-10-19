@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e3a8a"/>
+      <stop offset="50%" stop-color="#1d4ed8"/>
+      <stop offset="100%" stop-color="#0284c7"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047"/>
+      <stop offset="50%" stop-color="#eab308"/>
+      <stop offset="100%" stop-color="#ca8a04"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#0f172a" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle with safe padding -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+  
+  <!-- Outer glowing ring -->
+  <circle cx="256" cy="256" r="210" fill="none" stroke="url(#goldGrad)" stroke-width="6" opacity="0.8"/>
+  <circle cx="256" cy="256" r="198" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.3"/>
+
+  <!-- Content Group with Drop Shadow -->
+  <g filter="url(#shadow)">
+    <!-- Graduation Cap / Hat -->
+    <path d="M256 120 L390 185 L256 250 L122 185 Z" fill="url(#goldGrad)"/>
+    <!-- Cap Underneath / Neck -->
+    <path d="M175 212 L175 272 Q256 312 337 272 L337 212 Q256 252 175 212 Z" fill="#ffffff" opacity="0.95"/>
+    <!-- Tassel -->
+    <path d="M370 195 L370 280 C370 290 385 290 385 280 L385 195" stroke="url(#goldGrad)" stroke-width="5" fill="none"/>
+    <circle cx="377" cy="290" r="8" fill="url(#goldGrad)"/>
+
+    <!-- Open Book -->
+    <g transform="translate(0, 40)">
+      <!-- Left Page -->
+      <path d="M256 290 Q200 270 135 276 L135 370 Q200 364 256 384 Z" fill="#ffffff"/>
+      <!-- Right Page -->
+      <path d="M256 290 Q312 270 377 276 L377 370 Q312 364 256 384 Z" fill="#f8fafc"/>
+      <!-- Book spine lines -->
+      <line x1="256" y1="288" x2="256" y2="384" stroke="#cbd5e1" stroke-width="3"/>
+      <!-- Page content stripes (representing text/attendance rows) -->
+      <line x1="160" y1="305" x2="232" y2="300" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+      <line x1="160" y1="325" x2="232" y2="320" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+      <line x1="160" y1="345" x2="215" y2="340" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+      
+      <line x1="280" y1="300" x2="352" y2="305" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+      <line x1="280" y1="320" x2="352" y2="325" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+      <line x1="280" y1="340" x2="335" y2="345" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <!-- Star symbol in center -->
+    <polygon points="256,238 261,250 274,250 263,258 267,270 256,262 245,270 249,258 238,250 251,250" fill="url(#goldGrad)"/>
+  </g>
+
+  <!-- Banner text / School Name -->
+  <text x="256" y="455" text-anchor="middle" font-family="'Be Vietnam Pro', system-ui, -apple-system, sans-serif" font-weight="800" font-size="28" fill="#ffffff" letter-spacing="2">
+    THCS BẢN BO
+  </text>
+  <text x="256" y="482" text-anchor="middle" font-family="'Be Vietnam Pro', system-ui, -apple-system, sans-serif" font-weight="600" font-size="14" fill="#93c5fd" letter-spacing="1">
+    QUẢN LÝ SĨ SỐ HỌC SINH
+  </text>
+</svg>

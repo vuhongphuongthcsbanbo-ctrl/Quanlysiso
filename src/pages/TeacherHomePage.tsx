@@ -27,7 +27,9 @@ import {
   Layers,
   BookOpen,
   GraduationCap,
+  Download,
 } from 'lucide-react';
+import { PWAInstallModal } from '../components/common/PWAInstallModal';
 
 interface TeacherHomePageProps {
   currentDate: string;
@@ -90,6 +92,8 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
     }
     return 'MORNING';
   });
+
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
 
   return (
     <div className="max-w-lg mx-auto px-4 py-5 space-y-5 pb-24">
@@ -269,7 +273,28 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
       </div>
 
       {/* CẨM NANG & TẬP HUẤN THỰC HÀNH CHO GVCN */}
-      <div className="pt-2">
+      <div className="pt-2 space-y-3">
+        {/* Nút Cài đặt App vào điện thoại / máy tính cho GVCN */}
+        <button
+          type="button"
+          onClick={() => setIsInstallModalOpen(true)}
+          className="w-full bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-4 rounded-2xl shadow-md border border-blue-600/50 text-left cursor-pointer transition-all hover:scale-[1.01] flex items-center justify-between"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-1.5 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+              <Download className="w-3.5 h-3.5" />
+              <span>Tiện ích nhanh</span>
+            </div>
+            <div className="text-sm font-black text-white">
+              Cài Đặt App Vào Điện Thoại & Máy Tính
+            </div>
+            <div className="text-[11px] text-blue-100">
+              Mở trực tiếp từ màn hình chính để báo cáo sĩ số 30 giây mỗi sáng
+            </div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-blue-200 shrink-0 ml-2" />
+        </button>
+
         <button
           type="button"
           onClick={() => onNavigate('training_guide')}
@@ -290,6 +315,12 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
           <ChevronRight className="w-5 h-5 text-indigo-300 shrink-0 ml-2" />
         </button>
       </div>
+
+      {/* Modal Cài Đặt App */}
+      <PWAInstallModal
+        isOpen={isInstallModalOpen}
+        onClose={() => setIsInstallModalOpen(false)}
+      />
     </div>
   );
 };

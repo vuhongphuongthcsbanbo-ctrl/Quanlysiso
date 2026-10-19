@@ -13,10 +13,12 @@ import {
   Building2,
   Shield,
   UserCheck,
+  Download,
 } from 'lucide-react';
 import { NotificationBell } from './NotificationBell';
 import { trainingService } from '../../services/trainingService';
 import { SchoolLogo } from '../../theme/designSystem';
+import { PWAInstallModal } from './PWAInstallModal';
 
 interface HeaderProps {
   currentDate: string;
@@ -39,6 +41,7 @@ export const Header: React.FC<HeaderProps> = ({
   const allUsers = storageService.getUsers();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
+  const [showPWAInstallModal, setShowPWAInstallModal] = useState(false);
   const [isTrainingActive, setIsTrainingActive] = useState<boolean>(() => trainingService.isTrainingMode());
 
   // Lọc danh sách người dùng cho nút "Đổi vai trò":
@@ -87,10 +90,10 @@ export const Header: React.FC<HeaderProps> = ({
     switch (role) {
       case 'admin_tpt':
       case 'ADMIN':
-        return <span className="text-[11px] bg-rose-50 text-rose-800 border border-rose-200 font-bold px-2 py-0.5 rounded-lg">TPT Đội</span>;
+        return <span className="text-[11px] bg-rose-50 text-rose-800 border border-rose-200 font-bold px-2 py-0.5 rounded-lg">Tổng Phụ trách Đội</span>;
       case 'principal':
       case 'BOARD_OF_MANAGEMENT':
-        return <span className="text-[11px] bg-blue-50 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded-lg">Ban Giám Hiệu</span>;
+        return <span className="text-[11px] bg-blue-50 text-blue-800 border border-blue-200 font-bold px-2 py-0.5 rounded-lg">Hiệu trưởng</span>;
       case 'teacher_gvcn':
       case 'HEAD_TEACHER':
         return <span className="text-[11px] bg-emerald-50 text-emerald-800 border border-emerald-200 font-bold px-2 py-0.5 rounded-lg">GVCN</span>;
@@ -204,6 +207,17 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden lg:inline">Tập huấn</span>
             </button>
           )}
+
+          {/* Nút Cài đặt App vào điện thoại & máy tính */}
+          <button
+            type="button"
+            onClick={() => setShowPWAInstallModal(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-xl cursor-pointer transition-all shadow-2xs"
+            title="Cài đặt App vào máy tính & điện thoại cho GVCN"
+          >
+            <Download className="w-4 h-4 text-blue-600" />
+            <span className="hidden sm:inline">Cài đặt App</span>
+          </button>
 
           {/* Fast Role Switcher Dropdown (Essential for testing all roles) */}
           <div className="relative">
@@ -340,6 +354,12 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Modal Hướng dẫn & Cài đặt App cho GVCN */}
+      <PWAInstallModal
+        isOpen={showPWAInstallModal}
+        onClose={() => setShowPWAInstallModal(false)}
+      />
     </header>
   );
 };
