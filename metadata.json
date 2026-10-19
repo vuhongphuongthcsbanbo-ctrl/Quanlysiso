@@ -1,0 +1,8 @@
+{
+  "name": "Quản lý Sĩ số Học sinh THCS Bản Bo",
+  "description": "Hệ thống quản lý và báo cáo sĩ số học sinh hằng ngày Trường THCS Bản Bo, Lai Châu. Tối ưu cho giáo viên và Ban Giám hiệu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,180 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions for Role-Based Access Control (RBAC)
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        getUserData().role == 'admin_tpt' ||
+        getUserData().role == 'ADMIN'
+      );
+    }
+
+    function isBoardOfManagement() {
+      return isAuthenticated() && (
+        getUserData().role == 'principal' ||
+        getUserData().role == 'BOARD_OF_MANAGEMENT'
+      );
+    }
+
+    function isHeadTeacher() {
+      return isAuthenticated() && (
+        getUserData().role == 'teacher_gvcn' ||
+        getUserData().role == 'HEAD_TEACHER'
+      );
+    }
+
+    function isViewer() {
+      return isAuthenticated() && (
+        getUserData().role == 'viewer' ||
+        getUserData().role == 'VIEWER'
+      );
+    }
+
+    function isAssignedClassTeacher(classId) {
+      return isHeadTeacher() && getUserData().assignedClassId == classId;
+    }
+
+    // ==========================================
+    // 1. Users collection
+    // ==========================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ==========================================
+    // 2. Classes & Students (Fixed Roster)
+    // ==========================================
+    match /classes/{classId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /students/{studentId} {
+      allow read: if isAuthenticated();
+      // Section B: Only Admin or authorized accounts can modify student boardingType/profile
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 3. Attendance Reports (Section AO Rules)
+    // GVCN only creates/edits their own class report before it is approved
+    // ==========================================
+    match /attendanceReports/{reportId} {
+      // All school staff can read approved reports; GVCN can read their own
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        isBoardOfManagement() ||
+        isViewer() ||
+        resource.data.classId == getUserData().assignedClassId ||
+        resource.data.status in ['APPROVED', 'LOCKED']
+      );
+
+      // GVCN creates initial report for their assigned class
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        (isAssignedClassTeacher(request.resource.data.classId) &&
+         request.resource.data.status in ['PENDING_APPROVAL', 'NOT_SUBMITTED'])
+      );
+
+      // GVCN can only update their own class report if NOT YET APPROVED or LOCKED
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (isAssignedClassTeacher(resource.data.classId) &&
+         resource.data.status in ['PENDING_APPROVAL', 'REVISION_REQUIRED', 'NOT_SUBMITTED'] &&
+         request.resource.data.status in ['PENDING_APPROVAL'])
+      );
+
+      // Deletion only by Admin
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 4. Attendance Records
+    // ==========================================
+    match /attendanceRecords/{recordId} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && (
+        isAdmin() ||
+        isAssignedClassTeacher(request.resource.data.classId)
+      );
+    }
+
+    // ==========================================
+    // 5. School Daily Reports (Finalized by TPT)
+    // ==========================================
+    match /schoolDailyReports/{reportId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ==========================================
+    // 6. Settings & Audit Logs
+    // ==========================================
+    match /settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /importBatches/{batchId} {
+      allow read: if isAuthenticated() && (isAdmin() || isBoardOfManagement());
+      allow write: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && (isAdmin() || isBoardOfManagement());
+      allow create: if isAuthenticated();
+      allow update, delete: if false; // Append-only audit logs
+    }
+
+    // ==========================================
+    // 7. Notifications (Mục LVI: Security Rules)
+    // ==========================================
+    match /notifications/{notificationId} {
+      // GVCN chỉ đọc thông báo gửi cho mình; Admin xem được thông báo cần quản lý
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.recipientUserId == request.auth.uid ||
+        (resource.data.recipientRole in ['teacher_gvcn', 'HEAD_TEACHER'] && isHeadTeacher())
+      );
+
+      // GVCN không được tự tạo notification giả gửi người khác; tạo bởi Admin hoặc Trusted Backend
+      allow create: if isAdmin();
+
+      // Cho phép người nhận cập nhật trạng thái đã đọc (isRead, readAt)
+      allow update: if isAuthenticated() && (
+        isAdmin() ||
+        (resource.data.recipientUserId == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead', 'readAt']))
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // ==========================================
+    // 8. Reminder Logs (Mục XXXVI, LXX)
+    // ==========================================
+    match /reminderLogs/{logId} {
+      allow read: if isAuthenticated() && (isAdmin() || isBoardOfManagement());
+      allow create: if isAdmin();
+      allow update, delete: if false; // Append-only nhật ký nhắc nhở
+    }
+
+    // ==========================================
+    // 9. School Calendar (Mục IV, LXXI)
+    // ==========================================
+    match /schoolCalendar/{date} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}
