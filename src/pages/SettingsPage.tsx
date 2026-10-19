@@ -29,6 +29,7 @@ import { YearSetupWizardModal } from '../components/common/YearSetupWizardModal'
 import { notificationService } from '../services/notificationService';
 import { reminderService } from '../services/reminderService';
 import { ConfirmDialog } from '../theme/designSystem';
+import { SupabaseConnectCard } from '../components/admin/SupabaseConnectCard';
 
 export const SettingsPage: React.FC = () => {
   const { isAdmin } = useAuth();
@@ -721,6 +722,9 @@ export const SettingsPage: React.FC = () => {
           </div>
         )}
       </form>
+
+      {/* Supabase Cloud Database Integration */}
+      <SupabaseConnectCard />
 
       {/* Backup and Restore Section (Section XXXIX) */}
       {isAdmin && (

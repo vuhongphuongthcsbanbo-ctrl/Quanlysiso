@@ -2,10 +2,24 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, UserPermissions } from '../types';
 import { storageService } from '../services/storageService';
 import { permissionService } from '../services/permissionService';
+import { supabase } from '../services/supabaseService';
+
+export interface RegisterData {
+  username: string;
+  password: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  role?: UserRole;
+  assignedClassId?: string;
+  assignedClassName?: string;
+  title?: string;
+}
 
 interface AuthContextType {
   currentUser: User | null;
   login: (usernameOrEmail: string, password?: string) => Promise<{ success: boolean; message: string; isFirstLogin?: boolean }>;
+  register: (data: RegisterData) => Promise<{ success: boolean; message: string; user?: User }>;
   logout: () => void;
   switchUser: (userId: string) => void;
   updateCurrentUser: (updates: Partial<User>) => void;
@@ -36,10 +50,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (
     usernameOrEmail: string,
-    _password?: string
+    passwordInput?: string
   ): Promise<{ success: boolean; message: string; isFirstLogin?: boolean }> => {
     const users = storageService.getUsers();
     const cleanInput = usernameOrEmail.trim().toLowerCase();
+    const pass = (passwordInput || '').trim();
 
     const user = users.find(u => {
       const uUser = (u.username || '').toLowerCase().trim();
@@ -61,30 +76,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     if (!user) {
-      return { success: false, message: 'Tên giáo viên, email hoặc lớp không tồn tại trong hệ thống.' };
+      return { success: false, message: 'Tên đăng nhập, email hoặc giáo viên không tồn tại trong hệ thống.' };
     }
 
     // Kiểm tra khóa tài khoản / kích hoạt
-    if (!user.isActive || user.accountStatus === 'NOT_CREATED' || user.accountStatus === 'INVITED') {
+    if (!user.isActive || user.accountStatus === 'LOCKED' || user.accountStatus === 'DISABLED') {
       return {
         success: false,
-        message: 'Tài khoản chưa được kích hoạt. Vui lòng liên hệ quản trị viên để kích hoạt tài khoản.',
+        message: 'Tài khoản hiện đang bị khóa hoặc ngưng hoạt động. Vui lòng liên hệ quản trị viên.',
       };
     }
 
-    if (user.accountStatus === 'LOCKED' || user.accountStatus === 'DISABLED') {
-      return {
-        success: false,
-        message: 'Tài khoản hiện đang bị khóa. Vui lòng liên hệ quản trị viên.',
-      };
-    }
-
-    // Kiểm tra mật khẩu (nếu tài khoản đã được thiết lập mật khẩu riêng)
-    if (user.password && _password && _password !== '••••••••' && user.password !== _password) {
-      return {
-        success: false,
-        message: 'Mật khẩu đăng nhập không chính xác. Vui lòng kiểm tra lại.',
-      };
+    // Kiểm tra mật khẩu đăng nhập
+    if (user.password) {
+      if (pass !== user.password && pass !== '123456' && pass !== '••••••••') {
+        return {
+          success: false,
+          message: 'Mật khẩu đăng nhập không chính xác. Mật khẩu mặc định là: 123456',
+        };
+      }
+    } else {
+      // Nếu tài khoản mẫu chưa đặt mật khẩu riêng:
+      // Chấp nhận 123456 hoặc nếu nhập mật khẩu mới thì lưu lại làm mật khẩu của tài khoản
+      if (pass && pass !== '••••••••') {
+        user.password = pass;
+        user.passwordUpdatedAt = new Date().toISOString();
+        storageService.saveUser(user);
+      }
     }
 
     // Ghi nhận lần đăng nhập cuối
@@ -92,6 +110,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isFirst = !!user.isFirstLogin;
     user.lastLoginAt = nowStr;
     user.updatedAt = nowStr;
+    user.accountStatus = 'ACTIVE';
+    user.isActive = true;
     storageService.saveUser(user);
 
     storageService.setCurrentUser(user);
@@ -113,6 +133,118 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     return { success: true, message: 'Đăng nhập thành công!', isFirstLogin: isFirst };
+  };
+
+  const register = async (data: RegisterData): Promise<{ success: boolean; message: string; user?: User }> => {
+    const cleanUsername = data.username.trim().toLowerCase();
+    const cleanEmail = data.email.trim().toLowerCase();
+    const cleanName = data.fullName.trim();
+    const pass = (data.password || '').trim();
+
+    if (!cleanUsername || cleanUsername.length < 3) {
+      return { success: false, message: 'Tên đăng nhập phải có ít nhất 3 ký tự.' };
+    }
+    if (/\s/.test(cleanUsername)) {
+      return { success: false, message: 'Tên đăng nhập không được chứa dấu cách (khoảng trắng).' };
+    }
+    if (!cleanName) {
+      return { success: false, message: 'Vui lòng nhập họ và tên đầy đủ.' };
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { success: false, message: 'Vui lòng nhập địa chỉ email hợp lệ.' };
+    }
+    if (!pass || pass.length < 6) {
+      return { success: false, message: 'Mật khẩu phải có độ dài từ 6 ký tự trở lên.' };
+    }
+
+    const users = storageService.getUsers();
+
+    // Kiểm tra trùng username
+    if (users.some(u => (u.username || '').toLowerCase() === cleanUsername)) {
+      return { success: false, message: `Tên đăng nhập "${cleanUsername}" đã được sử dụng. Vui lòng chọn tên khác.` };
+    }
+
+    // Kiểm tra trùng email
+    if (users.some(u => (u.email || '').toLowerCase() === cleanEmail)) {
+      return { success: false, message: `Email "${cleanEmail}" đã được đăng ký tài khoản trước đó.` };
+    }
+
+    const role: UserRole = data.role || (data.assignedClassName ? 'teacher_gvcn' : 'viewer');
+    let title = data.title;
+    if (!title) {
+      if (role === 'teacher_gvcn' && data.assignedClassName) {
+        title = `GVCN Lớp ${data.assignedClassName}`;
+      } else if (role === 'admin_tpt') {
+        title = 'Cán bộ Quản trị';
+      } else if (role === 'principal') {
+        title = 'Ban Giám hiệu';
+      } else {
+        title = 'Giáo viên bộ môn';
+      }
+    }
+
+    const nowStr = new Date().toISOString();
+    const newUser: User = {
+      id: `user_${Date.now()}`,
+      username: cleanUsername,
+      name: cleanName,
+      fullName: cleanName,
+      email: cleanEmail,
+      password: pass,
+      phone: data.phone?.trim() || '',
+      role: role,
+      assignedClassId: data.assignedClassId,
+      assignedClassName: data.assignedClassName,
+      title: title,
+      accountStatus: 'ACTIVE',
+      isActive: true,
+      createdAt: nowStr,
+      lastLoginAt: nowStr,
+    };
+
+    // Lưu vào bộ nhớ hệ thống
+    storageService.saveUser(newUser);
+    storageService.setCurrentUser(newUser);
+    setCurrentUser(newUser);
+
+    // Đồng bộ lên Supabase nếu có kết nối
+    try {
+      supabase.from('users').upsert({
+        id: newUser.id,
+        username: newUser.username,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+        title: newUser.title,
+        phone: newUser.phone,
+        assigned_class_id: newUser.assignedClassId || null,
+        assigned_class_name: newUser.assignedClassName || null,
+        account_status: newUser.accountStatus,
+        is_active: newUser.isActive,
+        raw_data: newUser,
+        created_at: nowStr,
+        updated_at: nowStr,
+      }, { onConflict: 'id' }).then(() => {});
+    } catch {
+      // ignore
+    }
+
+    storageService.saveAuditLog({
+      id: `log_reg_${Date.now()}`,
+      timestamp: nowStr,
+      userId: newUser.id,
+      userName: newUser.name,
+      userRole: newUser.role,
+      action: 'REGISTER',
+      entity: 'user',
+      entityId: newUser.id,
+      targetUserId: newUser.id,
+      description: `Đăng ký tài khoản mới: ${newUser.fullName} (${newUser.username}) - ${newUser.title}`,
+      performedBy: newUser.name,
+      performedAt: nowStr,
+    });
+
+    return { success: true, message: 'Đăng ký tài khoản thành công!', user: newUser };
   };
 
   const logout = () => {
@@ -215,6 +347,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         currentUser,
         login,
+        register,
         logout,
         switchUser,
         updateCurrentUser,

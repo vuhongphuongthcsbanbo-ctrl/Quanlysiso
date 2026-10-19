@@ -23,6 +23,7 @@ import {
 } from '../data/initialSeedData';
 import { getTodayDateString } from '../utils/formatters';
 import { notificationService } from './notificationService';
+import { supabaseService } from './supabaseService';
 
 export const STORAGE_KEYS = {
   USERS: 'thcs_banbo_v2_users',
@@ -428,13 +429,12 @@ class StorageService {
       }
     }
 
-    // Nếu người dùng hiện tại là tài khoản gv thử nghiệm, chuyển sang Vũ Hồng Phương
+    // Nếu người dùng hiện tại là tài khoản gv thử nghiệm bị xóa, xóa session đăng nhập
     try {
       const rawCurrent = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
       const current = rawCurrent ? JSON.parse(rawCurrent) : null;
-      if (!current || current.id.startsWith('user_gv') || current.role === 'teacher_gvcn') {
-        const newCurrent = keptUsers.find(u => u.email.toLowerCase() === 'vuhongphuongthcsbanbo@gmail.com') || keptUsers[0];
-        localStorage.setItem(STORAGE_KEYS.CURRENT_USER, JSON.stringify(newCurrent));
+      if (current && (current.id.startsWith('user_gv_trial') || current.role === 'teacher_gvcn_trial')) {
+        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
       }
     } catch {
       // ignore
@@ -545,14 +545,14 @@ class StorageService {
   public getCurrentUser(): User | null {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.id) return parsed;
+      }
     } catch {
       // ignore
     }
-    // Default to TPT Đội Phạm Ngọc Thúy
-    const defaultUser = INITIAL_USERS[0];
-    this.setCurrentUser(defaultUser);
-    return defaultUser;
+    return null;
   }
 
   public setCurrentUser(user: User | null) {
@@ -919,6 +919,9 @@ class StorageService {
       reports.push(normalizedReport);
     }
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+
+    // Đồng bộ tức thời lên Supabase ở chế độ nền
+    supabaseService.saveReportToSupabase(normalizedReport);
   }
 
   // APPROVAL WORKFLOW METHODS (Section L, M, N, O, V)
@@ -938,6 +941,7 @@ class StorageService {
     report.updatedAt = timestamp;
 
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+    supabaseService.saveReportToSupabase(report);
 
     // Gửi thông báo đã duyệt cho GVCN (Mục LVII)
     const teacherUser = this.getUsers().find(
@@ -1016,6 +1020,10 @@ class StorageService {
 
     if (count > 0) {
       localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+      reports
+        .filter(r => reportIds.includes(r.id))
+        .forEach(r => supabaseService.saveReportToSupabase(r));
+
       this.addAuditLog(
         approvedBy,
         `Duyệt nhanh hàng loạt ${count} lớp: ${approvedClassNames.join(', ')}`,
@@ -1053,6 +1061,7 @@ class StorageService {
     report.updatedAt = timestamp;
 
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+    supabaseService.saveReportToSupabase(report);
 
     // Ngay lập tức tạo thông báo cho GVCN (Mục XXI, Test 6)
     const teacherUser = this.getUsers().find(
@@ -1109,6 +1118,7 @@ class StorageService {
     report.updatedAt = timestamp;
 
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+    supabaseService.saveReportToSupabase(report);
     this.addAuditLog(
       unlockedBy,
       `Mở khóa báo cáo Lớp ${report.className} với lí do: "${reason}"`,

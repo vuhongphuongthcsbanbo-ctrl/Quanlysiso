@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { storageService } from './services/storageService';
+import { supabaseService } from './services/supabaseService';
 import { Header } from './components/common/Header';
 import { Sidebar, PageId } from './components/common/Sidebar';
 import { MobileBottomBar } from './components/common/MobileBottomBar';
@@ -63,6 +64,13 @@ const MainLayout: React.FC = () => {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [viewingStudentId, setViewingStudentId] = useState<string | null>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+
+  useEffect(() => {
+    const unsub = supabaseService.subscribeToRealtimeChanges();
+    return () => {
+      unsub();
+    };
+  }, []);
 
   // If not logged in, render LoginPage
   if (!currentUser) {
