@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import { Teacher, EmploymentStatus, AccountStatus, UserRole } from '../types';
 import { storageService, STORAGE_KEYS } from './storageService';
 import { OFFICIAL_CLASS_NAMES } from './studentValidationService';
+import { OFFICIAL_TEACHERS } from '../data/initialSeedData';
 
 const TEACHERS_STORAGE_KEY = 'thcs_banbo_v2_teachers';
 
@@ -10,12 +11,34 @@ export class TeacherService {
    * Khởi tạo danh sách giáo viên từ 20 GVCN hiện tại của Trường THCS Bản Bo nếu chưa có
    */
   public getTeachers(): Teacher[] {
+    const demoTeacherNames = [
+      'Nguyễn Văn An', 'Lò Thị Mai', 'Trần Thị Thu', 'Hoàng Văn Bình', 'Điêu Văn Tiến',
+      'Trần Quốc Hưng', 'Hoàng Thị Lan', 'Lò Văn Chiến', 'Nông Thị Thảo', 'Đèo Văn Nam',
+      'Vàng A Tủa', 'Lê Thị Hồng', 'Lý A Sùng', 'Nguyễn Thị Ngọc', 'Hà Văn Dũng',
+      'Đặng Minh Tuấn', 'Nùng Thị Hoa', 'Vũ Đình Trọng', 'Mai Thị Hằng', 'Tạ Văn Quyết'
+    ];
+    const demoTeacherIds = [
+      'tch_6a1', 'tch_6a2', 'tch_6a3', 'tch_6a4', 'tch_6a5',
+      'tch_7a1', 'tch_7a2', 'tch_7a3', 'tch_7a4', 'tch_7a5',
+      'tch_8a1', 'tch_8a2', 'tch_8a3', 'tch_8a4', 'tch_8a5',
+      'tch_9a1', 'tch_9a2', 'tch_9a3', 'tch_9a4', 'tch_9a5',
+    ];
+
     try {
       const raw = localStorage.getItem(TEACHERS_STORAGE_KEY);
       if (raw) {
         const list: Teacher[] = JSON.parse(raw);
         if (Array.isArray(list) && list.length > 0) {
-          return list;
+          const filtered = list.filter(t => {
+            if (demoTeacherIds.includes(t.id)) return false;
+            if (t.id.startsWith('tch_6') || t.id.startsWith('tch_7') || t.id.startsWith('tch_8') || t.id.startsWith('tch_9')) return false;
+            if (demoTeacherNames.includes(t.fullName || '')) return false;
+            return true;
+          });
+          if (filtered.length !== list.length) {
+            this.saveTeachers(filtered);
+          }
+          return filtered;
         }
       }
     } catch {
@@ -699,52 +722,29 @@ export class TeacherService {
       createdBy: 'Hệ thống THCS Bản Bo',
     });
 
-    // 20 GVCN cho 20 lớp chính thức
-    const teacherDefaults = [
-      { code: 'GV6A1', name: 'Nguyễn Văn An', email: 'nguyenvanan@thcsbanbo.edu.vn', phone: '0982 123 456', class: '6A1' },
-      { code: 'GV6A2', name: 'Lò Thị Mai', email: 'lothimai@thcsbanbo.edu.vn', phone: '0984 234 567', class: '6A2' },
-      { code: 'GV6A3', name: 'Trần Thị Thu', email: 'tranthithu@thcsbanbo.edu.vn', phone: '0981 345 678', class: '6A3' },
-      { code: 'GV6A4', name: 'Hoàng Văn Bình', email: 'hoangvanbinh@thcsbanbo.edu.vn', phone: '0983 456 789', class: '6A4' },
-      { code: 'GV6A5', name: 'Điêu Văn Tiến', email: 'dieuvantien@thcsbanbo.edu.vn', phone: '0985 567 890', class: '6A5' },
-      { code: 'GV7A1', name: 'Trần Quốc Hưng', email: 'tranquochung@thcsbanbo.edu.vn', phone: '0973 345 678', class: '7A1' },
-      { code: 'GV7A2', name: 'Hoàng Thị Lan', email: 'hoangthilan@thcsbanbo.edu.vn', phone: '0912 456 789', class: '7A2' },
-      { code: 'GV7A3', name: 'Lò Văn Chiến', email: 'lovanchien@thcsbanbo.edu.vn', phone: '0971 678 901', class: '7A3' },
-      { code: 'GV7A4', name: 'Nông Thị Thảo', email: 'nongthithao@thcsbanbo.edu.vn', phone: '0914 789 012', class: '7A4' },
-      { code: 'GV7A5', name: 'Đèo Văn Nam', email: 'deovannam@thcsbanbo.edu.vn', phone: '0975 890 123', class: '7A5' },
-      { code: 'GV8A1', name: 'Vàng A Tủa', email: 'vangatua@thcsbanbo.edu.vn', phone: '0965 567 890', class: '8A1' },
-      { code: 'GV8A2', name: 'Lê Thị Hồng', email: 'lethihong@thcsbanbo.edu.vn', phone: '0986 678 901', class: '8A2' },
-      { code: 'GV8A3', name: 'Lý A Sùng', email: 'lyasung@thcsbanbo.edu.vn', phone: '0963 901 234', class: '8A3' },
-      { code: 'GV8A4', name: 'Nguyễn Thị Ngọc', email: 'nguyenthingoc@thcsbanbo.edu.vn', phone: '0987 012 345', class: '8A4' },
-      { code: 'GV8A5', name: 'Hà Văn Dũng', email: 'havandung@thcsbanbo.edu.vn', phone: '0968 123 456', class: '8A5' },
-      { code: 'GV9A1', name: 'Đặng Minh Tuấn', email: 'dangminhtuan@thcsbanbo.edu.vn', phone: '0977 789 012', class: '9A1' },
-      { code: 'GV9A2', name: 'Nùng Thị Hoa', email: 'nungthihoa@thcsbanbo.edu.vn', phone: '0918 890 123', class: '9A2' },
-      { code: 'GV9A3', name: 'Vũ Đình Trọng', email: 'vudinhtrong@thcsbanbo.edu.vn', phone: '0978 234 567', class: '9A3' },
-      { code: 'GV9A4', name: 'Mai Thị Hằng', email: 'maithihang@thcsbanbo.edu.vn', phone: '0988 345 678', class: '9A4' },
-      { code: 'GV9A5', name: 'Tạ Văn Quyết', email: 'tavanquyet@thcsbanbo.edu.vn', phone: '0919 456 789', class: '9A5' },
-    ];
-
-    teacherDefaults.forEach((tDef, idx) => {
-      const existingUser = rawUsers.find(u => u.email.toLowerCase() === tDef.email.toLowerCase());
-      result.push({
-        id: `tch_${tDef.class.toLowerCase()}`,
-        teacherCode: tDef.code,
-        fullName: tDef.name,
-        email: tDef.email.toLowerCase(),
-        phone: tDef.phone,
-        role: 'HEAD_TEACHER',
-        assignedClassId: `cls_${tDef.class.toLowerCase()}`,
-        assignedClassName: tDef.class,
-        schoolYearId: '2026-2027',
-        employmentStatus: 'ACTIVE',
-        accountStatus: existingUser?.isActive ? 'ACTIVE' : 'NOT_CREATED',
-        authUid: existingUser ? `auth_${existingUser.id}` : undefined,
-        createdAt: '2026-08-15T00:00:00.000Z',
-        updatedAt: '2026-08-15T00:00:00.000Z',
-        createdBy: 'Phạm Ngọc Thúy',
-      });
-    });
+    // Bổ sung 20 Giáo viên Chủ nhiệm chính thức của trường
+    for (const ot of OFFICIAL_TEACHERS) {
+      if (!result.some(r => r.id === ot.id || (r.email && ot.email && r.email.toLowerCase() === ot.email.toLowerCase()))) {
+        result.push({
+          ...ot,
+          schoolYearId: '2026-2027',
+          createdAt: '2026-10-15T00:00:00.000Z',
+          updatedAt: '2026-10-15T00:00:00.000Z',
+          createdBy: 'Hệ thống THCS Bản Bo',
+        });
+      }
+    }
 
     return result;
+  }
+
+  /**
+   * Xóa toàn bộ dữ liệu giáo viên chủ nhiệm demo
+   */
+  public clearAllDemoHeadTeachers(): { success: boolean; count: number } {
+    storageService.clearAllDemoHeadTeachersData();
+    const teachers = this.getTeachers();
+    return { success: true, count: teachers.length };
   }
 }
 

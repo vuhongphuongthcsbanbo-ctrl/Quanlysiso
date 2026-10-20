@@ -67,6 +67,7 @@ const MainLayout: React.FC = () => {
 
   useEffect(() => {
     const unsub = supabaseService.subscribeToRealtimeChanges();
+    supabaseService.pullFromSupabase().catch(() => {});
     return () => {
       unsub();
     };

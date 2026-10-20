@@ -503,11 +503,11 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
                         )}
                         <button
                           type="button"
-                          onClick={handleRestoreDefaultStudents}
+                          onClick={handleOpenAdd}
                           className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold inline-flex items-center gap-2 cursor-pointer border border-slate-300"
                         >
-                          <RotateCcw className="w-4 h-4 text-slate-500" />
-                          <span>Khôi phục 629 học sinh danh sách gốc của trường</span>
+                          <Plus className="w-4 h-4 text-slate-600" />
+                          <span>Thêm học sinh thủ công</span>
                         </button>
                       </div>
                     </div>

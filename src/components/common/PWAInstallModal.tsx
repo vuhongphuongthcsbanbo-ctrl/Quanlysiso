@@ -52,28 +52,10 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
     setTimeout(() => setCopiedText(null), 2000);
   };
 
-  const gvcnList = [
-    { grade: '6', class: '6A1', name: 'Nguyễn Văn An', email: 'nguyenvanan@thcsbanbo.edu.vn', phone: '0982 123 456' },
-    { grade: '6', class: '6A2', name: 'Lò Thị Mai', email: 'lothimai@thcsbanbo.edu.vn', phone: '0984 234 567' },
-    { grade: '6', class: '6A3', name: 'Trần Thị Thu', email: 'tranthithu@thcsbanbo.edu.vn', phone: '0981 345 678' },
-    { grade: '6', class: '6A4', name: 'Hoàng Văn Bình', email: 'hoangvanbinh@thcsbanbo.edu.vn', phone: '0983 456 789' },
-    { grade: '6', class: '6A5', name: 'Điêu Văn Tiến', email: 'dieuvantien@thcsbanbo.edu.vn', phone: '0985 567 890' },
-    { grade: '7', class: '7A1', name: 'Trần Quốc Hưng', email: 'tranquochung@thcsbanbo.edu.vn', phone: '0973 345 678' },
-    { grade: '7', class: '7A2', name: 'Hoàng Thị Lan', email: 'hoangthilan@thcsbanbo.edu.vn', phone: '0912 456 789' },
-    { grade: '7', class: '7A3', name: 'Lò Văn Chiến', email: 'lovanchien@thcsbanbo.edu.vn', phone: '0971 678 901' },
-    { grade: '7', class: '7A4', name: 'Nông Thị Thảo', email: 'nongthithao@thcsbanbo.edu.vn', phone: '0914 789 012' },
-    { grade: '7', class: '7A5', name: 'Đèo Văn Nam', email: 'deovannam@thcsbanbo.edu.vn', phone: '0975 890 123' },
-    { grade: '8', class: '8A1', name: 'Vàng A Tủa', email: 'vangatua@thcsbanbo.edu.vn', phone: '0965 567 890' },
-    { grade: '8', class: '8A2', name: 'Lê Thị Hồng', email: 'lethihong@thcsbanbo.edu.vn', phone: '0986 678 901' },
-    { grade: '8', class: '8A3', name: 'Lý A Sùng', email: 'lyasung@thcsbanbo.edu.vn', phone: '0963 901 234' },
-    { grade: '8', class: '8A4', name: 'Nguyễn Thị Ngọc', email: 'nguyenthingoc@thcsbanbo.edu.vn', phone: '0987 012 345' },
-    { grade: '8', class: '8A5', name: 'Hà Văn Dũng', email: 'havandung@thcsbanbo.edu.vn', phone: '0968 123 456' },
-    { grade: '9', class: '9A1', name: 'Đặng Minh Tuấn', email: 'dangminhtuan@thcsbanbo.edu.vn', phone: '0977 789 012' },
-    { grade: '9', class: '9A2', name: 'Nùng Thị Hoa', email: 'nungthihoa@thcsbanbo.edu.vn', phone: '0918 890 123' },
-    { grade: '9', class: '9A3', name: 'Vũ Đình Trọng', email: 'vudinhtrong@thcsbanbo.edu.vn', phone: '0978 234 567' },
-    { grade: '9', class: '9A4', name: 'Mai Thị Hằng', email: 'maithihang@thcsbanbo.edu.vn', phone: '0988 345 678' },
-    { grade: '9', class: '9A5', name: 'Tạ Văn Quyết', email: 'tavanquyet@thcsbanbo.edu.vn', phone: '0919 456 789' },
-  ];
+  const assignedClasses = storageService.getClasses().filter(
+    c => c.teacherName && c.teacherName !== 'Chưa phân công'
+  );
+
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
@@ -318,57 +300,57 @@ export const PWAInstallModal: React.FC<PWAInstallModalProps> = ({
               {/* Danh sách 20 GVCN với nút chọn nhanh */}
               <div>
                 <div className="font-bold text-slate-800 mb-2 flex items-center justify-between">
-                  <span>Danh sách 20 GVCN & Tài khoản đăng nhập tương ứng:</span>
+                  <span>Danh sách GVCN & Lớp học:</span>
                   <span className="text-[10px] text-slate-400 font-normal">20 lớp chính thức</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
-                  {gvcnList.map((gv) => {
-                    const isCopied = copiedText === gv.class;
-                    return (
-                      <div
-                        key={gv.class}
-                        className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-between transition-colors"
-                      >
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 font-black rounded text-[10px]">
-                              Lớp {gv.class}
-                            </span>
-                            <span className="font-bold text-slate-900">{gv.name}</span>
+                {assignedClasses.length === 0 ? (
+                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-center text-xs text-slate-500">
+                    <p className="font-semibold text-slate-700">Hiện tại 20 lớp đang ở trạng thái chưa phân công GVCN.</p>
+                    <p className="text-[11px] text-slate-400 mt-1">
+                      Quản trị viên có thể vào mục <strong>"Phân công GVCN"</strong> trong hệ thống để thực hiện phân công giáo viên chủ nhiệm.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto p-1">
+                    {assignedClasses.map((cls) => {
+                      const isCopied = copiedText === cls.name;
+                      return (
+                        <div
+                          key={cls.id}
+                          className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 flex items-center justify-between transition-colors"
+                        >
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-1.5 py-0.5 bg-blue-100 text-blue-800 font-black rounded text-[10px]">
+                                Lớp {cls.name}
+                              </span>
+                              <span className="font-bold text-slate-900">{cls.teacherName}</span>
+                            </div>
+                            {cls.teacherPhone && (
+                              <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                                SĐT: {cls.teacherPhone}
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                            {gv.email}
+
+                          <div className="flex items-center gap-1">
+                            {cls.teacherPhone && (
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(cls.teacherPhone!, cls.name)}
+                                title="Sao chép số điện thoại"
+                                className="p-1.5 text-slate-400 hover:text-slate-700 bg-white hover:bg-slate-200 rounded-lg border border-slate-200 cursor-pointer"
+                              >
+                                {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(gv.email, gv.class)}
-                            title="Sao chép email đăng nhập"
-                            className="p-1.5 text-slate-400 hover:text-slate-700 bg-white hover:bg-slate-200 rounded-lg border border-slate-200 cursor-pointer"
-                          >
-                            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
-
-                          {onSelectTeacherForLogin && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onSelectTeacherForLogin(gv.email);
-                                onClose();
-                              }}
-                              className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-[10px] cursor-pointer"
-                            >
-                              Chọn
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )}

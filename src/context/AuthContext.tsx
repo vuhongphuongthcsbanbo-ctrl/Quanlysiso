@@ -42,8 +42,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(() => storageService.getCurrentUser());
 
   useEffect(() => {
-    const user = storageService.getCurrentUser();
+    let user = storageService.getCurrentUser();
     if (user) {
+      if (!user.assignedClassId) {
+        const classes = storageService.getClasses();
+        const cleanName = (user.fullName || user.name || '').trim().toLowerCase();
+        const matched = classes.find(c =>
+          c.teacherId === user?.id ||
+          (user?.teacherId && c.teacherId === user.teacherId) ||
+          (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+          (user?.phone && c.teacherPhone && c.teacherPhone === user.phone) ||
+          (user?.assignedClassName && c.name?.toUpperCase() === user.assignedClassName.toUpperCase())
+        );
+        if (matched) {
+          user = {
+            ...user,
+            assignedClassId: matched.id,
+            assignedClassName: matched.name,
+          };
+          storageService.saveUser(user);
+          storageService.setCurrentUser(user);
+        }
+      }
       setCurrentUser(user);
     }
   }, []);
@@ -112,8 +132,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user.updatedAt = nowStr;
     user.accountStatus = 'ACTIVE';
     user.isActive = true;
-    storageService.saveUser(user);
 
+    if (!user.assignedClassId) {
+      const classes = storageService.getClasses();
+      const cleanName = (user.fullName || user.name || '').trim().toLowerCase();
+      const matched = classes.find(c =>
+        c.teacherId === user.id ||
+        (user.teacherId && c.teacherId === user.teacherId) ||
+        (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+        (user.phone && c.teacherPhone && c.teacherPhone === user.phone) ||
+        (user.assignedClassName && c.name?.toUpperCase() === user.assignedClassName.toUpperCase())
+      );
+      if (matched) {
+        user.assignedClassId = matched.id;
+        user.assignedClassName = matched.name;
+      }
+    }
+
+    storageService.saveUser(user);
     storageService.setCurrentUser(user);
     setCurrentUser(user);
 

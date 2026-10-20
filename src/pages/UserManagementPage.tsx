@@ -32,6 +32,8 @@ import {
   Shield,
   RefreshCw,
   ExternalLink,
+  Pencil,
+  AtSign,
 } from 'lucide-react';
 
 export const UserManagementPage: React.FC = () => {
@@ -73,6 +75,13 @@ export const UserManagementPage: React.FC = () => {
   const [requireChangeOnFirstLogin, setRequireChangeOnFirstLogin] = useState(true);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [isSettingPassword, setIsSettingPassword] = useState(false);
+
+  // Edit Username Modal
+  const [isEditUsernameModalOpen, setIsEditUsernameModalOpen] = useState(false);
+  const [targetEditUser, setTargetEditUser] = useState<User | null>(null);
+  const [editNewUsername, setEditNewUsername] = useState('');
+  const [editUsernameError, setEditUsernameError] = useState<string | null>(null);
+  const [isSavingUsername, setIsSavingUsername] = useState(false);
 
   // Handover / Credential result modal
   const [credentialModalData, setCredentialModalData] = useState<{
@@ -418,6 +427,37 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
     }
   };
 
+  // Mở modal sửa tên đăng nhập
+  const handleOpenEditUsername = (u: User) => {
+    setTargetEditUser(u);
+    setEditNewUsername(u.username || '');
+    setEditUsernameError(null);
+    setIsEditUsernameModalOpen(true);
+  };
+
+  const handleConfirmEditUsername = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!targetEditUser) return;
+    setEditUsernameError(null);
+    setIsSavingUsername(true);
+
+    const res = userService.updateUsername(
+      targetEditUser.id,
+      editNewUsername,
+      currentUser?.id || 'admin_tpt',
+      currentUser?.name || 'Vũ Hồng Phương'
+    );
+
+    setIsSavingUsername(false);
+    if (res.success) {
+      showNotify('success', res.message);
+      setIsEditUsernameModalOpen(false);
+      refreshData();
+    } else {
+      setEditUsernameError(res.message);
+    }
+  };
+
   // Mở modal tạo tài khoản hàng loạt cho 20 lớp
   const handleOpenBulkModal = () => {
     setBulkStep('PREVIEW');
@@ -750,8 +790,18 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                         <td className="p-3.5 font-medium text-slate-700">
                           <div>{tch.email}</div>
                           {user?.username && (
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              User: {user.username}
+                            <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
+                              <span>User: <strong className="text-blue-900">{user.username}</strong></span>
+                              {isAdmin && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditUsername(user)}
+                                  className="text-amber-700 hover:text-amber-900 font-sans font-bold flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-amber-100 cursor-pointer text-[10px]"
+                                  title="Sửa tên đăng nhập"
+                                >
+                                  <Pencil className="w-2.5 h-2.5" /> Sửa
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -838,7 +888,20 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                                 <span>Đặt mật khẩu</span>
                               </button>
 
-                              {/* 3. Nút phân vai trò nếu có User */}
+                              {/* 3. NÚT SỬA TÊN ĐĂNG NHẬP (Cho từng giáo viên) */}
+                              {user && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditUsername(user)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95"
+                                  title="Chỉnh sửa tên đăng nhập của giáo viên này"
+                                >
+                                  <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                                  <span>Sửa tên ĐN</span>
+                                </button>
+                              )}
+
+                              {/* 4. Nút phân vai trò nếu có User */}
                               {user && (
                                 <button
                                   type="button"
@@ -918,7 +981,19 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                         </td>
                         <td className="p-3.5">
                           <div className="font-medium text-slate-700">{u.email}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">User: {u.username}</div>
+                          <div className="text-[10px] text-slate-500 font-mono flex items-center gap-1.5 mt-0.5">
+                            <span>User: <strong className="text-blue-900">{u.username}</strong></span>
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditUsername(u)}
+                                className="text-amber-700 hover:text-amber-900 font-sans font-bold flex items-center gap-0.5 px-1 py-0.5 rounded hover:bg-amber-100 cursor-pointer text-[10px]"
+                                title="Sửa tên đăng nhập"
+                              >
+                                <Pencil className="w-2.5 h-2.5" /> Sửa
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="p-3.5">
                           <span
@@ -964,7 +1039,7 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                         </td>
                         {isAdmin && (
                           <td className="p-3.5 text-center">
-                            <div className="flex items-center justify-center gap-1.5">
+                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
                               {/* Kích hoạt nếu bị khóa */}
                               {isLocked ? (
                                 <button
@@ -1001,6 +1076,17 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                               >
                                 <KeyRound className="w-3.5 h-3.5 text-blue-600" />
                                 <span>Đặt MK</span>
+                              </button>
+
+                              {/* Sửa tên đăng nhập */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditUsername(u)}
+                                className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold cursor-pointer transition-all active:scale-95"
+                                title="Sửa tên đăng nhập tài khoản này"
+                              >
+                                <Pencil className="w-3 h-3 text-amber-700" />
+                                <span>Sửa tên ĐN</span>
                               </button>
 
                               {/* Đổi Role */}
@@ -1487,6 +1573,98 @@ ${credentialModalData.requireChangeOnFirstLogin ? '(Lưu ý: Hệ thống sẽ y
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 6: CHỈNH SỬA TÊN ĐĂNG NHẬP (USERNAME)                     */}
+      {/* ============================================================== */}
+      {isEditUsernameModalOpen && targetEditUser && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4 border border-slate-200 animate-in fade-in">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-sm uppercase">
+                    Chỉnh Sửa Tên Đăng Nhập
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    {targetEditUser.name} · {targetEditUser.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsEditUsernameModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {editUsernameError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs font-semibold flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>{editUsernameError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleConfirmEditUsername} className="space-y-4">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                <div className="text-slate-500 text-[11px]">Tên đăng nhập hiện tại:</div>
+                <div className="font-mono font-bold text-slate-800 text-sm">
+                  {targetEditUser.username || '(Chưa có)'}
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Email liên kết: {targetEditUser.email}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                  Tên đăng nhập mới *
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                    <AtSign className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={editNewUsername}
+                    onChange={(e) => setEditNewUsername(e.target.value.toLowerCase().replace(/\s+/g, ''))}
+                    placeholder="ví dụ: vuhongphuong hoặc gv_6a1"
+                    className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-900 font-bold font-mono text-xs focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  Quy tắc: Ít nhất 3 ký tự, viết liền không dấu, không khoảng cách. Tên đăng nhập này sẽ dùng để đăng nhập vào phần mềm và đồng bộ lên Supabase.
+                </span>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsEditUsernameModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 rounded-xl text-xs font-semibold hover:bg-slate-50 cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUsername}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-black shadow-md cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>{isSavingUsername ? 'ĐANG LƯU...' : 'LƯU TÊN ĐĂNG NHẬP'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -75,14 +75,57 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
     return storageService.getClasses().filter(c => c.isActive);
   }, []);
 
-  // If teacher, enforce assigned class (Mục II: Không yêu cầu giáo viên chọn lớp mỗi ngày)
-  const userAssignedClassId = currentUser?.assignedClassId;
+  // Resolve assigned class for teacher
+  const resolvedTeacherClass = useMemo(() => {
+    if (!currentUser) return null;
+    if (currentUser.assignedClassId) {
+      const cls = storageService.getClassById(currentUser.assignedClassId);
+      if (cls) return cls;
+    }
+    if (currentUser.assignedClassName) {
+      const cls = storageService.getClassById(currentUser.assignedClassName);
+      if (cls) return cls;
+    }
+    const cleanName = (currentUser.fullName || currentUser.name || '').trim().toLowerCase();
+    const matchedClass = allClasses.find(c =>
+      (currentUser.id && c.teacherId === currentUser.id) ||
+      (currentUser.teacherId && c.teacherId === currentUser.teacherId) ||
+      (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && c.teacherPhone && c.teacherPhone === currentUser.phone)
+    );
+    if (matchedClass) return matchedClass;
+
+    try {
+      const rawTeachers = localStorage.getItem('thcs_banbo_v2_teachers');
+      if (rawTeachers) {
+        const teachers: any[] = JSON.parse(rawTeachers);
+        const tch = teachers.find(t =>
+          (currentUser.teacherId && t.id === currentUser.teacherId) ||
+          (currentUser.email && t.email && t.email.trim().toLowerCase() === currentUser.email.trim().toLowerCase()) ||
+          (cleanName && t.fullName && t.fullName.trim().toLowerCase() === cleanName)
+        );
+        if (tch && (tch.assignedClassId || tch.assignedClassName)) {
+          return storageService.getClassById(tch.assignedClassId || tch.assignedClassName) || null;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }, [currentUser, allClasses]);
 
   // Selected class logic
   const [selectedClassId, setSelectedClassId] = useState<string>(() => {
-    if (userAssignedClassId) return userAssignedClassId;
+    if (resolvedTeacherClass) return resolvedTeacherClass.id;
+    if (currentUser?.assignedClassId) return currentUser.assignedClassId;
     return allClasses[0]?.id || 'cls_6a1';
   });
+
+  useEffect(() => {
+    if (resolvedTeacherClass && selectedClassId !== resolvedTeacherClass.id) {
+      setSelectedClassId(resolvedTeacherClass.id);
+    }
+  }, [resolvedTeacherClass]);
 
   // Chế độ chọn buổi trong mục "Báo cáo hôm nay": BUỔI SÁNG, BUỔI CHIỀU hoặc TỔNG QUAN CẢ NGÀY
   const [activeSessionMode, setActiveSessionMode] = useState<TeacherSessionMode>(() => {
@@ -113,7 +156,7 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
   }, [selectedClassId]);
 
   // If teacher has NO assigned class (Mục II)
-  const isTeacherWithoutClass = isTeacher && !currentUser?.assignedClassId;
+  const isTeacherWithoutClass = isTeacher && !resolvedTeacherClass && !currentUser?.assignedClassId;
 
   // Students in class (Only active students)
   const studentsInClass: Student[] = useMemo(() => {

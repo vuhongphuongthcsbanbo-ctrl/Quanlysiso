@@ -2,6 +2,7 @@ import { User, UserRole, AccountStatus } from '../types';
 import { storageService } from './storageService';
 import { teacherService } from './teacherService';
 import { permissionService } from './permissionService';
+import { supabase } from './supabaseService';
 
 export class UserService {
   public getUsers(): User[] {
@@ -677,6 +678,84 @@ export class UserService {
       success: true,
       activatedCount: count,
       message: `Đã kích hoạt thành công tất cả tài khoản! Toàn bộ giáo viên và người dùng hiện đã ở trạng thái HOẠT ĐỘNG.`,
+    };
+  }
+
+  /**
+   * Sửa tên đăng nhập (Username) cho tài khoản người dùng
+   */
+  public updateUsername(
+    userId: string,
+    newUsername: string,
+    performedById: string,
+    performedByName: string
+  ): { success: boolean; message: string; user?: User } {
+    const cleanUsername = newUsername.trim().toLowerCase();
+    if (!cleanUsername || cleanUsername.length < 3) {
+      return { success: false, message: 'Tên đăng nhập mới phải có ít nhất 3 ký tự.' };
+    }
+    if (/\s/.test(cleanUsername)) {
+      return { success: false, message: 'Tên đăng nhập không được chứa khoảng cách (dấu cách).' };
+    }
+
+    const users = this.getUsers();
+    const targetUser = users.find(u => u.id === userId);
+    if (!targetUser) {
+      return { success: false, message: 'Không tìm thấy tài khoản người dùng.' };
+    }
+
+    // Kiểm tra xem tên đăng nhập mới có bị trùng với tài khoản khác không
+    const duplicate = users.find(u => u.id !== userId && (u.username || '').toLowerCase() === cleanUsername);
+    if (duplicate) {
+      return {
+        success: false,
+        message: `Tên đăng nhập "${cleanUsername}" đã được tài khoản "${duplicate.name}" sử dụng. Vui lòng chọn tên khác.`,
+      };
+    }
+
+    const oldUsername = targetUser.username;
+    targetUser.username = cleanUsername;
+    targetUser.updatedAt = new Date().toISOString();
+
+    storageService.saveUser(targetUser);
+
+    // Nếu người thực hiện sửa tài khoản của chính mình thì cập nhật phiên đăng nhập
+    const currentAuth = storageService.getCurrentUser();
+    if (currentAuth && currentAuth.id === targetUser.id) {
+      storageService.setCurrentUser(targetUser);
+    }
+
+    // Đồng bộ lên Supabase nếu có kết nối
+    try {
+      supabase.from('users').update({
+        username: cleanUsername,
+        raw_data: targetUser,
+        updated_at: new Date().toISOString(),
+      }).eq('id', targetUser.id).then(() => {});
+    } catch {
+      // ignore
+    }
+
+    // Ghi nhật ký kiểm toán
+    storageService.saveAuditLog({
+      id: `log_change_username_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      userId: performedById,
+      userName: performedByName,
+      userRole: 'admin_tpt',
+      action: 'UPDATE_USERNAME',
+      entity: 'user',
+      entityId: targetUser.id,
+      targetUserId: targetUser.id,
+      description: `Đổi tên đăng nhập tài khoản ${targetUser.name} từ "${oldUsername}" thành "${cleanUsername}"`,
+      performedBy: performedByName,
+      performedAt: new Date().toISOString(),
+    });
+
+    return {
+      success: true,
+      message: `Đã đổi tên đăng nhập cho ${targetUser.name} thành "${cleanUsername}" thành công!`,
+      user: targetUser,
     };
   }
 }

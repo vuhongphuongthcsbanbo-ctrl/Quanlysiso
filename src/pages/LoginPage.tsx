@@ -25,28 +25,7 @@ import {
 import { AppButton, AppInput, SchoolLogo } from '../theme/designSystem';
 import { PWAInstallModal } from '../components/common/PWAInstallModal';
 
-const GVCN_LIST = [
-  { grade: 6, class: '6A1', name: 'Nguyễn Văn An', id: 'user_gv6a1', email: 'nguyenvanan@thcsbanbo.edu.vn' },
-  { grade: 6, class: '6A2', name: 'Lò Thị Mai', id: 'user_gv6a2', email: 'lothimai@thcsbanbo.edu.vn' },
-  { grade: 6, class: '6A3', name: 'Trần Thị Thu', id: 'user_gv6a3', email: 'tranthithu@thcsbanbo.edu.vn' },
-  { grade: 6, class: '6A4', name: 'Hoàng Văn Bình', id: 'user_gv6a4', email: 'hoangvanbinh@thcsbanbo.edu.vn' },
-  { grade: 6, class: '6A5', name: 'Điêu Văn Tiến', id: 'user_gv6a5', email: 'dieuvantien@thcsbanbo.edu.vn' },
-  { grade: 7, class: '7A1', name: 'Trần Quốc Hưng', id: 'user_gv7a1', email: 'tranquochung@thcsbanbo.edu.vn' },
-  { grade: 7, class: '7A2', name: 'Hoàng Thị Lan', id: 'user_gv7a2', email: 'hoangthilan@thcsbanbo.edu.vn' },
-  { grade: 7, class: '7A3', name: 'Lò Văn Chiến', id: 'user_gv7a3', email: 'lovanchien@thcsbanbo.edu.vn' },
-  { grade: 7, class: '7A4', name: 'Nông Thị Thảo', id: 'user_gv7a4', email: 'nongthithao@thcsbanbo.edu.vn' },
-  { grade: 7, class: '7A5', name: 'Đèo Văn Nam', id: 'user_gv7a5', email: 'deovannam@thcsbanbo.edu.vn' },
-  { grade: 8, class: '8A1', name: 'Vàng A Tủa', id: 'user_gv8a1', email: 'vangatua@thcsbanbo.edu.vn' },
-  { grade: 8, class: '8A2', name: 'Lê Thị Hồng', id: 'user_gv8a2', email: 'lethihong@thcsbanbo.edu.vn' },
-  { grade: 8, class: '8A3', name: 'Lý A Sùng', id: 'user_gv8a3', email: 'lyasung@thcsbanbo.edu.vn' },
-  { grade: 8, class: '8A4', name: 'Nguyễn Thị Ngọc', id: 'user_gv8a4', email: 'nguyenthingoc@thcsbanbo.edu.vn' },
-  { grade: 8, class: '8A5', name: 'Hà Văn Dũng', id: 'user_gv8a5', email: 'havandung@thcsbanbo.edu.vn' },
-  { grade: 9, class: '9A1', name: 'Đặng Minh Tuấn', id: 'user_gv9a1', email: 'dangminhtuan@thcsbanbo.edu.vn' },
-  { grade: 9, class: '9A2', name: 'Nùng Thị Hoa', id: 'user_gv9a2', email: 'nungthihoa@thcsbanbo.edu.vn' },
-  { grade: 9, class: '9A3', name: 'Vũ Đình Trọng', id: 'user_gv9a3', email: 'vudinhtrong@thcsbanbo.edu.vn' },
-  { grade: 9, class: '9A4', name: 'Mai Thị Hằng', id: 'user_gv9a4', email: 'maithihang@thcsbanbo.edu.vn' },
-  { grade: 9, class: '9A5', name: 'Tạ Văn Quyết', id: 'user_gv9a5', email: 'tavanquyet@thcsbanbo.edu.vn' },
-];
+
 
 interface LoginPageProps {
   onLoginSuccess: () => void;
@@ -56,6 +35,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const { login, register, switchUser } = useAuth();
   const settings = storageService.getSettings();
   const classes = storageService.getClasses();
+  const registeredTeachers = storageService.getUsers().filter(
+    u => u.role === 'teacher_gvcn' || (u.assignedClassName && u.id !== 'user_vuhongphuong' && u.id !== 'user_tpt' && u.id !== 'user_bgh')
+  );
 
   // Active Tab: 'login' | 'register'
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
@@ -441,57 +423,80 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
                 {showTeacherSelector ? (
                   <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 space-y-2 animate-in fade-in duration-200">
-                    {/* Grade tabs */}
-                    <div className="grid grid-cols-4 gap-1">
-                      {[6, 7, 8, 9].map((gr) => (
-                        <button
-                          key={gr}
-                          type="button"
-                          onClick={() => setSelectedGradeTab(gr)}
-                          className={`py-1 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
-                            selectedGradeTab === gr
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
-                          }`}
-                        >
-                          Khối {gr}
-                        </button>
-                      ))}
-                    </div>
+                    {registeredTeachers.length === 0 ? (
+                      <div className="p-3 text-center bg-white rounded-xl border border-slate-200 text-xs text-slate-500">
+                        <div className="font-bold text-slate-700">Chưa có tài khoản Giáo viên Chủ nhiệm nào</div>
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          Quý Thầy/Cô vui lòng chuyển sang tab <strong className="text-blue-600">"Đăng ký tài khoản"</strong> ở trên để tạo tài khoản mới, hoặc Quản trị viên thực hiện cấp tài khoản tại mục Quản lý tài khoản.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        {/* Grade tabs */}
+                        <div className="grid grid-cols-4 gap-1">
+                          {[6, 7, 8, 9].map((gr) => (
+                            <button
+                              key={gr}
+                              type="button"
+                              onClick={() => setSelectedGradeTab(gr)}
+                              className={`py-1 text-xs font-extrabold rounded-lg transition-all cursor-pointer ${
+                                selectedGradeTab === gr
+                                  ? 'bg-blue-600 text-white shadow-xs'
+                                  : 'bg-white text-slate-600 hover:bg-slate-200 border border-slate-200'
+                              }`}
+                            >
+                              Khối {gr}
+                            </button>
+                          ))}
+                        </div>
 
-                    {/* 5 GVCN of active grade */}
-                    <div className="grid grid-cols-1 gap-1.5 pt-1">
-                      {GVCN_LIST.filter((g) => g.grade === selectedGradeTab).map((gv) => (
-                        <button
-                          key={gv.id}
-                          type="button"
-                          onClick={() => handleQuickLogin(gv.id)}
-                          className="p-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl text-left flex items-center justify-between transition-all cursor-pointer group"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-black rounded-md text-[11px] group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                              Lớp {gv.class}
-                            </span>
-                            <div>
-                              <div className="font-bold text-xs text-slate-800 group-hover:text-blue-900">
-                                {gv.name}
-                              </div>
-                              <div className="text-[10px] text-slate-400">
-                                Tài khoản: <code className="font-mono text-blue-900">{gv.id.replace('user_', '')}</code> · Pass: <code className="font-mono">123456</code>
-                              </div>
+                        {/* Teachers of active grade */}
+                        <div className="grid grid-cols-1 gap-1.5 pt-1">
+                          {registeredTeachers
+                            .filter((g) => {
+                              const clsName = g.assignedClassName || '';
+                              return clsName.startsWith(String(selectedGradeTab));
+                            })
+                            .map((gv) => (
+                              <button
+                                key={gv.id}
+                                type="button"
+                                onClick={() => handleQuickLogin(gv.id)}
+                                className="p-2 bg-white hover:bg-blue-50 border border-slate-200 hover:border-blue-300 rounded-xl text-left flex items-center justify-between transition-all cursor-pointer group"
+                              >
+                                <div className="flex items-center gap-2">
+                                  {gv.assignedClassName && (
+                                    <span className="px-2 py-0.5 bg-blue-100 text-blue-800 font-black rounded-md text-[11px] group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                      Lớp {gv.assignedClassName}
+                                    </span>
+                                  )}
+                                  <div>
+                                    <div className="font-bold text-xs text-slate-800 group-hover:text-blue-900">
+                                      {gv.fullName || gv.name}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400">
+                                      Tên đăng nhập: <code className="font-mono text-blue-900">{gv.username || gv.email}</code>
+                                    </div>
+                                  </div>
+                                </div>
+                                <span className="text-[11px] font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
+                                  Vào ngay →
+                                </span>
+                              </button>
+                            ))}
+                          {registeredTeachers.filter((g) => (g.assignedClassName || '').startsWith(String(selectedGradeTab))).length === 0 && (
+                            <div className="p-2.5 text-center text-xs text-slate-400">
+                              Chưa có tài khoản GVCN khối {selectedGradeTab}
                             </div>
-                          </div>
-                          <span className="text-[11px] font-bold text-blue-600 group-hover:translate-x-0.5 transition-transform flex items-center gap-0.5">
-                            Vào ngay →
-                          </span>
-                        </button>
-                      ))}
-                    </div>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ) : (
                   <div className="p-2.5 bg-blue-50/60 rounded-xl border border-blue-200/60 flex items-center justify-between text-xs">
                     <span className="text-slate-600 text-[11px]">
-                      Bấm vào <strong>"Xem danh sách"</strong> để tra cứu tài khoản GVCN hoặc đăng nhập nhanh.
+                      Bấm vào <strong>"Xem danh sách"</strong> để tra cứu tài khoản GVCN đã được cấp.
                     </span>
                     <button
                       type="button"

@@ -17,6 +17,7 @@ import { DEFAULT_SETTINGS } from '../config/constants';
 import {
   INITIAL_USERS,
   INITIAL_CLASSES,
+  OFFICIAL_TEACHERS,
   INITIAL_STUDENTS,
   generateInitialReports,
   INITIAL_AUDIT_LOGS,
@@ -57,10 +58,18 @@ class StorageService {
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
     }
 
-    // Tự động xóa tài khoản giáo viên thử nghiệm và đưa 20 GVCN về trạng thái chờ kích hoạt
-    const purgedTrial = localStorage.getItem('thcs_banbo_trial_teacher_accounts_purged_v3');
-    if (!purgedTrial) {
-      this.clearDemoTeacherAccounts();
+    // Tự động xóa sạch toàn bộ dữ liệu giáo viên chủ nhiệm demo
+    const purgedDemoGvcn = localStorage.getItem('thcs_banbo_purged_all_demo_gvcn_v2026_complete_sync');
+    if (!purgedDemoGvcn) {
+      this.clearAllDemoHeadTeachersData();
+      localStorage.setItem('thcs_banbo_purged_all_demo_gvcn_v2026_complete_sync', 'true');
+    }
+
+    // Tự động xóa sạch toàn bộ dữ liệu học sinh demo
+    const purgedDemoStudents = localStorage.getItem('thcs_banbo_purged_all_demo_students_v2026_final');
+    if (!purgedDemoStudents) {
+      this.clearAllDemoStudents();
+      localStorage.setItem('thcs_banbo_purged_all_demo_students_v2026_final', 'true');
     }
 
     // Luôn đảm bảo bộ 3 tài khoản Quản trị & Ban Giám hiệu chính thức có mặt và ở trạng thái kích hoạt (ACTIVE):
@@ -177,7 +186,7 @@ class StorageService {
         });
       }
 
-      // Đảm bảo 20 GVCN chính thức luôn có mặt trong usersList và ở trạng thái KÍCH HOẠT (ACTIVE)
+      // Đảm bảo bộ 3 tài khoản Quản trị & BGH chính thức luôn có mặt trong usersList
       for (const initUser of INITIAL_USERS) {
         const existing = usersList.find(
           u => u.id === initUser.id || (u.email && u.email.toLowerCase() === initUser.email.toLowerCase())
@@ -185,11 +194,8 @@ class StorageService {
         if (!existing) {
           usersList.push({ ...initUser });
         } else {
-          // Cập nhật đúng vai trò và trạng thái
           existing.name = initUser.name;
           existing.fullName = initUser.fullName;
-          existing.assignedClassId = initUser.assignedClassId;
-          existing.assignedClassName = initUser.assignedClassName;
           existing.title = initUser.title;
           existing.role = initUser.role;
           existing.accountStatus = 'ACTIVE';
@@ -199,33 +205,36 @@ class StorageService {
 
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(usersList));
 
-      // Cập nhật danh sách giáo viên
+      // Cập nhật danh sách giáo viên: duy trì cán bộ BGH/Admin và toàn bộ 20 giáo viên chính thức
       const rawTeachers = localStorage.getItem(STORAGE_KEYS.TEACHERS);
-      if (rawTeachers) {
-        let tList: any[] = JSON.parse(rawTeachers);
-        let bghTch = tList.find(t => t.id === 'tch_bgh' || t.role === 'BOARD_OF_MANAGEMENT' || t.email?.includes('dodanhbinh') || t.email?.includes('hoangxuannhat'));
-        if (bghTch) {
-          bghTch.fullName = 'Hoàng Xuân Nhật';
-          bghTch.email = 'hoangxuannhat@thcsbanbo.edu.vn';
-          bghTch.phone = '0912 345 678';
-          bghTch.role = 'BOARD_OF_MANAGEMENT';
-          bghTch.notes = 'Hiệu trưởng Trường THCS Bản Bo';
-          bghTch.accountStatus = 'ACTIVE';
-        }
-        // Đảm bảo 20 GVCN trong TEACHERS đều ACTIVE
-        tList = tList.map(t => ({
-          ...t,
-          accountStatus: 'ACTIVE',
-        }));
-        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(tList));
+      let tList: any[] = rawTeachers ? JSON.parse(rawTeachers) : [];
+      let bghTch = tList.find(t => t.id === 'tch_bgh' || t.role === 'BOARD_OF_MANAGEMENT' || t.email?.includes('hoangxuannhat'));
+      if (bghTch) {
+        bghTch.fullName = 'Hoàng Xuân Nhật';
+        bghTch.email = 'hoangxuannhat@thcsbanbo.edu.vn';
+        bghTch.phone = '0912 345 678';
+        bghTch.role = 'BOARD_OF_MANAGEMENT';
+        bghTch.notes = 'Hiệu trưởng Trường THCS Bản Bo';
+        bghTch.accountStatus = 'ACTIVE';
       }
+      for (const ot of OFFICIAL_TEACHERS) {
+        if (!tList.some((t: any) => t.id === ot.id || (t.email && ot.email && t.email.toLowerCase() === ot.email.toLowerCase()))) {
+          tList.push(ot);
+        }
+      }
+      localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(tList));
+      localStorage.setItem('thcs_banbo_teachers', JSON.stringify(tList));
     } catch {
       // ignore
     }
 
     if (!localStorage.getItem(STORAGE_KEYS.CLASSES)) {
       localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
+      localStorage.setItem('thcs_banbo_classes', JSON.stringify(INITIAL_CLASSES));
     }
+
+    // Tự động đồng bộ giáo viên chủ nhiệm đã được phân công và kích hoạt vào 20 lớp
+    this.syncClassesWithAssignedTeachers();
 
     // Kiểm tra danh sách học sinh: Nếu người dùng đã chủ động xóa tất cả học sinh thì giữ nguyên danh sách rỗng
     const studentsClearedByUser = localStorage.getItem('thcs_banbo_all_students_deleted_by_user') === 'true';
@@ -239,12 +248,12 @@ class StorageService {
       }
     }
 
-    // Chỉ tự động nạp dữ liệu gốc khi chưa từng khởi tạo và người dùng chưa từng bấm xóa tất cả
+    // Không nạp dữ liệu demo khi chưa có học sinh
     if (rawV2 === null && !studentsClearedByUser) {
-      currentStudents = INITIAL_STUDENTS;
+      currentStudents = [];
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
-      localStorage.setItem('thcs_banbo_dataset_status', 'OFFICIAL_ACTIVE');
+      localStorage.setItem('thcs_banbo_dataset_status', 'NO_DATA');
     }
 
     const storedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -464,6 +473,174 @@ class StorageService {
     localStorage.setItem('thcs_banbo_trial_teacher_accounts_purged_v3', 'true');
   }
 
+  /**
+   * Xóa toàn bộ dữ liệu về giáo viên chủ nhiệm demo (theo yêu cầu của người dùng)
+   */
+  public clearAllDemoHeadTeachersData() {
+    const adminEmails = [
+      'vuhongphuongthcsbanbo@gmail.com',
+      'phamngocthuy@thcsbanbo.edu.vn',
+      'hoangxuannhat@thcsbanbo.edu.vn',
+    ];
+
+    const demoTeacherNames = [
+      'Nguyễn Văn An', 'Lò Thị Mai', 'Trần Thị Thu', 'Hoàng Văn Bình', 'Điêu Văn Tiến',
+      'Trần Quốc Hưng', 'Hoàng Thị Lan', 'Lò Văn Chiến', 'Nông Thị Thảo', 'Đèo Văn Nam',
+      'Vàng A Tủa', 'Lê Thị Hồng', 'Lý A Sùng', 'Nguyễn Thị Ngọc', 'Hà Văn Dũng',
+      'Đặng Minh Tuấn', 'Nùng Thị Hoa', 'Vũ Đình Trọng', 'Mai Thị Hằng', 'Tạ Văn Quyết'
+    ];
+
+    const demoUserIds = [
+      'user_gv6a1', 'user_gv6a2', 'user_gv6a3', 'user_gv6a4', 'user_gv6a5',
+      'user_gv7a1', 'user_gv7a2', 'user_gv7a3', 'user_gv7a4', 'user_gv7a5',
+      'user_gv8a1', 'user_gv8a2', 'user_gv8a3', 'user_gv8a4', 'user_gv8a5',
+      'user_gv9a1', 'user_gv9a2', 'user_gv9a3', 'user_gv9a4', 'user_gv9a5',
+    ];
+
+    const demoTeacherIds = [
+      'tch_6a1', 'tch_6a2', 'tch_6a3', 'tch_6a4', 'tch_6a5',
+      'tch_7a1', 'tch_7a2', 'tch_7a3', 'tch_7a4', 'tch_7a5',
+      'tch_8a1', 'tch_8a2', 'tch_8a3', 'tch_8a4', 'tch_8a5',
+      'tch_9a1', 'tch_9a2', 'tch_9a3', 'tch_9a4', 'tch_9a5',
+    ];
+
+    // 1. Dọn dẹp danh sách Users: chỉ giữ lại tài khoản quản trị/BGH và các tài khoản thật do người dùng tạo/đăng ký
+    try {
+      const rawUsers = localStorage.getItem(STORAGE_KEYS.USERS);
+      let users: User[] = rawUsers ? JSON.parse(rawUsers) : INITIAL_USERS;
+      users = users.filter(u => {
+        if (demoUserIds.includes(u.id)) return false;
+        if (u.id.startsWith('user_gv6') || u.id.startsWith('user_gv7') || u.id.startsWith('user_gv8') || u.id.startsWith('user_gv9')) return false;
+        const email = (u.email || '').toLowerCase().trim();
+        if (adminEmails.includes(email)) return true;
+        if (demoTeacherNames.includes(u.name || '') || demoTeacherNames.includes(u.fullName || '')) {
+          return false;
+        }
+        return true;
+      });
+      localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+    } catch {
+      // ignore
+    }
+
+    // 2. Dọn dẹp danh sách Teachers (Hồ sơ giáo viên)
+    try {
+      const rawTeachers = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+      if (rawTeachers) {
+        let teachers: any[] = JSON.parse(rawTeachers);
+        teachers = teachers.filter(t => {
+          if (demoTeacherIds.includes(t.id)) return false;
+          if (t.id.startsWith('tch_6') || t.id.startsWith('tch_7') || t.id.startsWith('tch_8') || t.id.startsWith('tch_9')) return false;
+          const email = (t.email || '').toLowerCase().trim();
+          if (adminEmails.includes(email)) return true;
+          if (demoTeacherNames.includes(t.fullName || '')) return false;
+          return true;
+        });
+        localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(teachers));
+      }
+    } catch {
+      // ignore
+    }
+
+    // 3. Xóa thông tin GVCN demo trong 20 lớp (chỉ xóa nếu là demo, KHÔNG xóa giáo viên thực tế đã được phân công)
+    try {
+      const rawClasses = localStorage.getItem(STORAGE_KEYS.CLASSES);
+      let classes: SchoolClass[] = rawClasses ? JSON.parse(rawClasses) : INITIAL_CLASSES;
+      classes = classes.map(c => {
+        const isDemo =
+          (c.teacherName && demoTeacherNames.includes(c.teacherName)) ||
+          (c.teacherId && (demoTeacherIds.includes(c.teacherId) || demoUserIds.includes(c.teacherId)));
+        if (isDemo) {
+          const defaultOfficial = INITIAL_CLASSES.find(ic => ic.id === c.id || ic.name === c.name);
+          return {
+            ...c,
+            teacherId: defaultOfficial?.teacherId || undefined,
+            teacherName: defaultOfficial?.teacherName || 'Chưa phân công',
+            teacherPhone: defaultOfficial?.teacherPhone || undefined,
+          };
+        }
+        return c;
+      });
+      localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
+      localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+    } catch {
+      // ignore
+    }
+
+    // 4. Xóa lịch sử phân công GVCN demo
+    try {
+      localStorage.setItem(STORAGE_KEYS.TEACHER_ASSIGNMENTS, JSON.stringify([]));
+    } catch {
+      // ignore
+    }
+
+    // 5. Xóa thông tin giáo viên demo trong báo cáo điểm danh nếu có
+    try {
+      const rawReports = localStorage.getItem(STORAGE_KEYS.REPORTS);
+      if (rawReports) {
+        let reports: AttendanceReport[] = JSON.parse(rawReports);
+        let changed = false;
+        reports = reports.map(r => {
+          if (
+            (r.teacherName && demoTeacherNames.includes(r.teacherName)) ||
+            (r.submittedBy && demoTeacherNames.includes(r.submittedBy)) ||
+            (r.teacherId && (demoTeacherIds.includes(r.teacherId) || demoUserIds.includes(r.teacherId)))
+          ) {
+            changed = true;
+            return {
+              ...r,
+              teacherId: '',
+              teacherName: 'Chưa phân công',
+              submittedBy: 'Chưa phân công',
+            };
+          }
+          return r;
+        });
+        if (changed) {
+          localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 6. Nếu đang đăng nhập bằng tài khoản GVCN demo, xóa session đăng nhập
+    try {
+      const rawCurrent = localStorage.getItem(STORAGE_KEYS.CURRENT_USER);
+      if (rawCurrent) {
+        const current = JSON.parse(rawCurrent);
+        if (current && (current.id.startsWith('user_gv') || demoUserIds.includes(current.id) || demoTeacherNames.includes(current.name || ''))) {
+          localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // 7. Ghi Audit log
+    try {
+      this.addAuditLog(
+        'Vũ Hồng Phương',
+        'Đã xóa toàn bộ dữ liệu mẫu về Giáo viên Chủ nhiệm (GVCN). Đưa danh sách 20 lớp về trạng thái chưa phân công để sẵn sàng nhập/phân công chính thức.',
+        'teacher',
+        'XÓA DỮ LIỆU GVCN DEMO'
+      );
+    } catch {
+      // ignore
+    }
+
+    // 8. Đồng bộ dọn dẹp lên Supabase nền nếu online
+    try {
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
+  }
+
   // RESET TO DEMO DATA
   public resetToDemoData() {
     const todayStr = getTodayDateString();
@@ -493,10 +670,27 @@ class StorageService {
   // USERS
   public getUsers(): User[] {
     this.init();
+    const demoTeacherNames = [
+      'Nguyễn Văn An', 'Lò Thị Mai', 'Trần Thị Thu', 'Hoàng Văn Bình', 'Điêu Văn Tiến',
+      'Trần Quốc Hưng', 'Hoàng Thị Lan', 'Lò Văn Chiến', 'Nông Thị Thảo', 'Đèo Văn Nam',
+      'Vàng A Tủa', 'Lê Thị Hồng', 'Lý A Sùng', 'Nguyễn Thị Ngọc', 'Hà Văn Dũng',
+      'Đặng Minh Tuấn', 'Nùng Thị Hoa', 'Vũ Đình Trọng', 'Mai Thị Hằng', 'Tạ Văn Quyết'
+    ];
+    const demoUserIds = [
+      'user_gv6a1', 'user_gv6a2', 'user_gv6a3', 'user_gv6a4', 'user_gv6a5',
+      'user_gv7a1', 'user_gv7a2', 'user_gv7a3', 'user_gv7a4', 'user_gv7a5',
+      'user_gv8a1', 'user_gv8a2', 'user_gv8a3', 'user_gv8a4', 'user_gv8a5',
+      'user_gv9a1', 'user_gv9a2', 'user_gv9a3', 'user_gv9a4', 'user_gv9a5',
+    ];
+
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.USERS);
       const list: User[] = raw ? JSON.parse(raw) : INITIAL_USERS;
       return list.filter(u => {
+        if (demoUserIds.includes(u.id)) return false;
+        if (u.id.startsWith('user_gv6') || u.id.startsWith('user_gv7') || u.id.startsWith('user_gv8') || u.id.startsWith('user_gv9')) return false;
+        if (demoTeacherNames.includes(u.name || '') || demoTeacherNames.includes(u.fullName || '')) return false;
+
         const isNhat = (u.name || '').includes('Hoàng Xuân Nhật') || (u.fullName || '').includes('Hoàng Xuân Nhật');
         if (isNhat) {
           const r = u.role as string;
@@ -530,6 +724,26 @@ class StorageService {
       users.push(user);
     }
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+
+    // Tự động đồng bộ sang danh sách lớp học nếu user là GVCN có phân công lớp
+    if ((user.assignedClassName || user.assignedClassId) && (user.role === 'HEAD_TEACHER' || user.role === 'teacher_gvcn')) {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEYS.CLASSES);
+        const classes: SchoolClass[] = raw ? JSON.parse(raw) : INITIAL_CLASSES;
+        const targetClass = classes.find(
+          c => c.id === user.assignedClassId || c.name === user.assignedClassName || c.name === user.assignedClassId
+        );
+        if (targetClass) {
+          targetClass.teacherId = user.id;
+          targetClass.teacherName = user.fullName || user.name;
+          targetClass.teacherPhone = user.phone || targetClass.teacherPhone;
+          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
+          localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
 
   public updateUserStatus(userId: string, isActive: boolean) {
@@ -538,6 +752,7 @@ class StorageService {
     if (target) {
       target.isActive = isActive;
       localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
+      this.syncClassesWithAssignedTeachers();
     }
   }
 
@@ -563,6 +778,94 @@ class StorageService {
     }
   }
 
+  /**
+   * Tự động quét và đồng bộ thông tin GVCN từ danh sách tài khoản người dùng và hồ sơ giáo viên vào bảng 20 lớp
+   */
+  public syncClassesWithAssignedTeachers() {
+    try {
+      const users = this.getUsers();
+      let teachers: any[] = [];
+      try {
+        const rawT = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+        teachers = rawT ? JSON.parse(rawT) : [];
+      } catch {
+        // ignore
+      }
+
+      const raw = localStorage.getItem(STORAGE_KEYS.CLASSES);
+      let classes: SchoolClass[] = raw ? JSON.parse(raw) : INITIAL_CLASSES;
+
+      let changed = false;
+      classes = classes.map(cls => {
+        const clsNameNorm = cls.name.trim().toUpperCase();
+        const clsIdNorm = cls.id.trim().toLowerCase();
+
+        // 1. Tìm từ Users
+        const assignedUser = users.find(u => {
+          if (u.accountStatus === 'LOCKED' || u.isActive === false) return false;
+          const uClass = (u.assignedClassName || '').trim().toUpperCase();
+          const uClassId = (u.assignedClassId || '').trim().toLowerCase();
+          return (
+            (uClass && (uClass === clsNameNorm || `LỚP ${uClass}` === clsNameNorm)) ||
+            (uClassId && (uClassId === clsIdNorm || uClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+            (cls.teacherId && (u.id === cls.teacherId || u.teacherId === cls.teacherId))
+          );
+        });
+
+        // 2. Tìm từ Teachers nếu chưa thấy ở Users
+        const assignedTeacher = !assignedUser ? teachers.find(t => {
+          if (t.employmentStatus === 'LEFT') return false;
+          const tClass = (t.assignedClassName || '').trim().toUpperCase();
+          const tClassId = (t.assignedClassId || '').trim().toLowerCase();
+          return (
+            (tClass && (tClass === clsNameNorm || `LỚP ${tClass}` === clsNameNorm)) ||
+            (tClassId && (tClassId === clsIdNorm || tClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+            (cls.teacherId && t.id === cls.teacherId)
+          );
+        }) : null;
+
+        // 3. Lớp mặc định chính thức
+        const defaultClass = INITIAL_CLASSES.find(ic => ic.id === cls.id || ic.name === cls.name);
+
+        let newTeacherName = cls.teacherName;
+        let newTeacherId = cls.teacherId;
+        let newTeacherPhone = cls.teacherPhone;
+
+        if (assignedUser) {
+          newTeacherName = assignedUser.fullName || assignedUser.name;
+          newTeacherId = assignedUser.id;
+          newTeacherPhone = assignedUser.phone || cls.teacherPhone || defaultClass?.teacherPhone || '';
+        } else if (assignedTeacher) {
+          newTeacherName = assignedTeacher.fullName;
+          newTeacherId = assignedTeacher.id;
+          newTeacherPhone = assignedTeacher.phone || cls.teacherPhone || defaultClass?.teacherPhone || '';
+        } else if ((!cls.teacherName || cls.teacherName === 'Chưa phân công') && defaultClass?.teacherName) {
+          newTeacherName = defaultClass.teacherName;
+          newTeacherId = defaultClass.teacherId;
+          newTeacherPhone = defaultClass.teacherPhone || '';
+        }
+
+        if (cls.teacherName !== newTeacherName || cls.teacherId !== newTeacherId || cls.teacherPhone !== newTeacherPhone) {
+          changed = true;
+          return {
+            ...cls,
+            teacherId: newTeacherId,
+            teacherName: newTeacherName,
+            teacherPhone: newTeacherPhone,
+          };
+        }
+        return cls;
+      });
+
+      if (changed) {
+        localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
+        localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   // CLASSES (Dynamic - never hardcode count)
   public getClasses(): SchoolClass[] {
     this.init();
@@ -570,6 +873,21 @@ class StorageService {
       const raw = localStorage.getItem(STORAGE_KEYS.CLASSES);
       const classes: SchoolClass[] = raw ? JSON.parse(raw) : INITIAL_CLASSES;
       const students = this.getStudents();
+      const users = this.getUsers();
+      let teachers: any[] = [];
+      try {
+        const rawT = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+        teachers = rawT ? JSON.parse(rawT) : [];
+      } catch {
+        // ignore
+      }
+
+      const demoTeacherNames = [
+        'Nguyễn Văn An', 'Lò Thị Mai', 'Trần Thị Thu', 'Hoàng Văn Bình', 'Điêu Văn Tiến',
+        'Trần Quốc Hưng', 'Hoàng Thị Lan', 'Lò Văn Chiến', 'Nông Thị Thảo', 'Đèo Văn Nam',
+        'Vàng A Tủa', 'Lê Thị Hồng', 'Lý A Sùng', 'Nguyễn Thị Ngọc', 'Hà Văn Dũng',
+        'Đặng Minh Tuấn', 'Nùng Thị Hoa', 'Vũ Đình Trọng', 'Mai Thị Hằng', 'Tạ Văn Quyết'
+      ];
 
       // Dynamically calculate class statistics from actual students
       return classes.map(cls => {
@@ -586,8 +904,60 @@ class StorageService {
         const boardingCount = clsStudents.filter(s => s.boardingType === 'BOARDING').length;
         const nonBoardingCount = clsStudents.filter(s => s.boardingType === 'NON_BOARDING').length;
 
+        const isDemo = cls.teacherName && demoTeacherNames.includes(cls.teacherName);
+        let finalTeacherName = isDemo ? 'Chưa phân công' : (cls.teacherName || 'Chưa phân công');
+        let finalTeacherId = isDemo ? undefined : cls.teacherId;
+        let finalTeacherPhone = isDemo ? undefined : cls.teacherPhone;
+
+        const clsNameNorm = cls.name.trim().toUpperCase();
+        const clsIdNorm = cls.id.trim().toLowerCase();
+
+        // 1. Tự động tìm kiếm giáo viên chủ nhiệm tương ứng từ bảng tài khoản người dùng đã phân công
+        const assignedUser = users.find(u => {
+          if (u.accountStatus === 'LOCKED' || u.isActive === false) return false;
+          const uClass = (u.assignedClassName || '').trim().toUpperCase();
+          const uClassId = (u.assignedClassId || '').trim().toLowerCase();
+          return (
+            (uClass && (uClass === clsNameNorm || `LỚP ${uClass}` === clsNameNorm)) ||
+            (uClassId && (uClassId === clsIdNorm || uClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+            (cls.teacherId && (u.id === cls.teacherId || u.teacherId === cls.teacherId))
+          );
+        });
+
+        // 2. Tìm kiếm trong hồ sơ giáo viên nếu chưa tìm thấy ở user
+        const assignedTeacher = !assignedUser ? teachers.find(t => {
+          if (t.employmentStatus === 'LEFT') return false;
+          const tClass = (t.assignedClassName || '').trim().toUpperCase();
+          const tClassId = (t.assignedClassId || '').trim().toLowerCase();
+          return (
+            (tClass && (tClass === clsNameNorm || `LỚP ${tClass}` === clsNameNorm)) ||
+            (tClassId && (tClassId === clsIdNorm || tClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+            (cls.teacherId && t.id === cls.teacherId)
+          );
+        }) : null;
+
+        // 3. Fallback theo bảng phân công chính thức THCS Bản Bo
+        const defaultClass = INITIAL_CLASSES.find(ic => ic.id === cls.id || ic.name === cls.name);
+
+        if (assignedUser) {
+          finalTeacherName = assignedUser.fullName || assignedUser.name;
+          finalTeacherId = assignedUser.id;
+          finalTeacherPhone = assignedUser.phone || finalTeacherPhone || defaultClass?.teacherPhone;
+        } else if (assignedTeacher) {
+          finalTeacherName = assignedTeacher.fullName;
+          finalTeacherId = assignedTeacher.id;
+          finalTeacherPhone = assignedTeacher.phone || finalTeacherPhone || defaultClass?.teacherPhone;
+        } else if ((!finalTeacherName || finalTeacherName === 'Chưa phân công') && defaultClass?.teacherName) {
+          finalTeacherName = defaultClass.teacherName;
+          finalTeacherId = defaultClass.teacherId;
+          finalTeacherPhone = defaultClass.teacherPhone || finalTeacherPhone;
+        }
+
         return {
           ...cls,
+          teacherName: finalTeacherName,
+          teacherId: finalTeacherId,
+          teacherPhone: finalTeacherPhone,
           totalStudents: clsStudents.length,
           maleCount,
           femaleCount,
@@ -602,7 +972,17 @@ class StorageService {
   }
 
   public getClassById(classId: string): SchoolClass | undefined {
-    return this.getClasses().find(c => c.id === classId || c.name === classId);
+    if (!classId) return undefined;
+    const clean = classId.trim().toUpperCase();
+    const cleanId = classId.trim().toLowerCase();
+    return this.getClasses().find(
+      c =>
+        c.id === classId ||
+        c.id.toLowerCase() === cleanId ||
+        c.name.toUpperCase() === clean ||
+        c.code?.toUpperCase() === clean ||
+        c.id.toLowerCase() === `cls_${clean.toLowerCase()}`
+    );
   }
 
   public saveClass(cls: SchoolClass) {
@@ -643,8 +1023,9 @@ class StorageService {
       const raw = localStorage.getItem(STORAGE_KEYS.STUDENTS);
       let list: Student[] = raw ? JSON.parse(raw) : [];
 
-      // Phục hồi từ key legacy nếu key chính đang trống
-      if (!Array.isArray(list) || list.length === 0) {
+      // Phục hồi từ key legacy nếu key chính đang trống VÀ người dùng chưa từng xóa
+      const studentsClearedByUser = localStorage.getItem('thcs_banbo_all_students_deleted_by_user') === 'true';
+      if (!studentsClearedByUser && (!Array.isArray(list) || list.length === 0)) {
         const legacyRaw = localStorage.getItem('thcs_banbo_students');
         if (legacyRaw) {
           try {
@@ -659,8 +1040,21 @@ class StorageService {
         }
       }
 
+      // Loại bỏ hoàn toàn học sinh demo
+      const filtered = list.filter(s => {
+        if (!s) return false;
+        if (s.isDemo) return false;
+        if (s.id && /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id)) return false;
+        return true;
+      });
+
+      if (filtered.length !== list.length) {
+        localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(filtered));
+        localStorage.setItem('thcs_banbo_students', JSON.stringify(filtered));
+      }
+
       // Ensure boardingType compatibility
-      return list.map(s => ({
+      return filtered.map(s => ({
         ...s,
         boardingType: s.boardingType || (s.studentType === 'boarding' ? 'BOARDING' : (s.boardingType === 'UNSET' ? 'UNSET' : 'NON_BOARDING')),
       }));
@@ -672,6 +1066,7 @@ class StorageService {
   public saveAllStudents(students: Student[]) {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
   }
 
   /**
@@ -684,6 +1079,8 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify([]));
     localStorage.setItem('thcs_banbo_students', JSON.stringify([]));
     localStorage.setItem('thcs_banbo_all_students_deleted_by_user', 'true');
+    localStorage.setItem('thcs_banbo_demo_cleared', 'true');
+    localStorage.setItem('thcs_banbo_dataset_status', 'NO_DATA');
 
     // Đặt lại số lượng học sinh của 20 lớp chính thức về 0
     const classes = this.getClasses();
@@ -698,6 +1095,8 @@ class StorageService {
     }));
     localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
     localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
+    localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify([]));
+    localStorage.removeItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
 
     this.addAuditLog(
       performedByName,
@@ -706,11 +1105,22 @@ class StorageService {
       'XÓA TẤT CẢ HỌC SINH'
     );
 
+    try {
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
+
     return { success: true, count };
   }
 
   /**
-   * Khôi phục lại 629 học sinh danh sách gốc của 20 lớp Trường THCS Bản Bo
+   * Khôi phục lại học sinh danh sách gốc của 20 lớp Trường THCS Bản Bo
    */
   public restoreDefaultStudents(performedByName: string = 'Quản trị viên'): { success: boolean; count: number } {
     localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
@@ -750,10 +1160,11 @@ class StorageService {
    */
   public clearAllDemoStudents(currentUserName: string = 'Phạm Ngọc Thúy') {
     const prev = this.getStudents();
-    const realStudents = prev.filter(s => s.source === 'EXCEL_IMPORT' && !s.isDemo);
+    const realStudents = prev.filter(s => s.source === 'EXCEL_IMPORT' && !s.isDemo && !(s.id && /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id)));
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_demo_cleared', 'true');
+    localStorage.setItem('thcs_banbo_all_students_deleted_by_user', realStudents.length === 0 ? 'true' : 'false');
     localStorage.setItem('thcs_banbo_dataset_status', realStudents.length > 0 ? 'ACTIVE_DATASET' : 'NO_DATA');
 
     // Đồng bộ lại số lượng học sinh trong 20 lớp chính thức
@@ -783,6 +1194,18 @@ class StorageService {
       'student',
       'XÓA HỌC SINH DEMO'
     );
+
+    // Đồng bộ dọn dẹp lên Supabase nền nếu online
+    try {
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
   }
 
   public getStudentsByClass(classId: string): Student[] {

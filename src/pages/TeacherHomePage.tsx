@@ -44,8 +44,61 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
 
   // Get assigned class
   const assignedClass = useMemo(() => {
-    if (!currentUser?.assignedClassId) return null;
-    return storageService.getClassById(currentUser.assignedClassId) || null;
+    if (!currentUser) return null;
+    // 1. Theo assignedClassId
+    if (currentUser.assignedClassId) {
+      const cls = storageService.getClassById(currentUser.assignedClassId);
+      if (cls) return cls;
+    }
+    // 2. Theo assignedClassName
+    if (currentUser.assignedClassName) {
+      const cls = storageService.getClassById(currentUser.assignedClassName);
+      if (cls) return cls;
+    }
+    // 3. Tìm theo teacherId hoặc tên giáo viên trong danh sách lớp
+    const classes = storageService.getClasses();
+    const cleanName = (currentUser.fullName || currentUser.name || '').trim().toLowerCase();
+    const cleanEmail = (currentUser.email || '').trim().toLowerCase();
+    const matchedClass = classes.find(c =>
+      (currentUser.id && c.teacherId === currentUser.id) ||
+      (currentUser.teacherId && c.teacherId === currentUser.teacherId) ||
+      (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && c.teacherPhone && c.teacherPhone === currentUser.phone)
+    );
+    if (matchedClass) {
+      currentUser.assignedClassId = matchedClass.id;
+      currentUser.assignedClassName = matchedClass.name;
+      storageService.saveUser(currentUser);
+      storageService.setCurrentUser(currentUser);
+      return matchedClass;
+    }
+
+    // 4. Tìm trong danh sách hồ sơ giáo viên
+    try {
+      const rawTeachers = localStorage.getItem('thcs_banbo_v2_teachers');
+      if (rawTeachers) {
+        const teachers: any[] = JSON.parse(rawTeachers);
+        const tch = teachers.find(t =>
+          (currentUser.teacherId && t.id === currentUser.teacherId) ||
+          (cleanEmail && t.email && t.email.trim().toLowerCase() === cleanEmail) ||
+          (cleanName && t.fullName && t.fullName.trim().toLowerCase() === cleanName)
+        );
+        if (tch && (tch.assignedClassId || tch.assignedClassName)) {
+          const cls = storageService.getClassById(tch.assignedClassId || tch.assignedClassName);
+          if (cls) {
+            currentUser.assignedClassId = cls.id;
+            currentUser.assignedClassName = cls.name;
+            storageService.saveUser(currentUser);
+            storageService.setCurrentUser(currentUser);
+            return cls;
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return null;
   }, [currentUser]);
 
   // If teacher is not assigned to any class (Mục II)

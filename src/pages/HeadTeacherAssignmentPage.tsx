@@ -23,8 +23,8 @@ import {
 
 export const HeadTeacherAssignmentPage: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
-  const classes = storageService.getClasses();
-  const teachers = teacherService.getTeachers();
+  const [classes, setClasses] = useState<SchoolClass[]>(() => storageService.getClasses());
+  const [teachers, setTeachers] = useState<Teacher[]>(() => teacherService.getTeachers());
 
   const [assignments, setAssignments] = useState<TeacherAssignment[]>(() =>
     teacherAssignmentService.getAssignments()
@@ -58,7 +58,15 @@ export const HeadTeacherAssignmentPage: React.FC = () => {
   };
 
   const refreshData = () => {
+    setClasses(storageService.getClasses());
+    setTeachers(teacherService.getTeachers());
     setAssignments(teacherAssignmentService.getAssignments());
+  };
+
+  const handleClearDemoGvcn = () => {
+    storageService.clearAllDemoHeadTeachersData();
+    refreshData();
+    showNotify('success', 'Đã xóa toàn bộ dữ liệu giáo viên chủ nhiệm demo thành công!');
   };
 
   // Tính thống kê 20 lớp (Mục XXVII)
@@ -194,6 +202,18 @@ export const HeadTeacherAssignmentPage: React.FC = () => {
               Lịch Sử Phân Công
             </button>
           </div>
+
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleClearDemoGvcn}
+              className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+              title="Xóa toàn bộ dữ liệu giáo viên chủ nhiệm demo"
+            >
+              <UserX className="w-3.5 h-3.5 text-rose-600" />
+              <span>Xóa GVCN Demo</span>
+            </button>
+          )}
         </div>
       </div>
 

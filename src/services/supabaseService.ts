@@ -368,11 +368,16 @@ class SupabaseService {
           const { error: stuError } = await supabase.from('students').upsert(rows, { onConflict: 'id' });
           if (stuError) throw new Error(`Lỗi đồng bộ học sinh: ${stuError.message}`);
         }
+      } else {
+        await supabase.from('students').delete().neq('id', 'keep_none');
       }
 
       // 3. Đồng bộ Báo cáo điểm danh
       const rawReports = localStorage.getItem(STORAGE_KEYS.REPORTS);
       const reports: AttendanceReport[] = rawReports ? JSON.parse(rawReports) : [];
+      if (reports.length === 0) {
+        await supabase.from('attendance_reports').delete().neq('id', 'keep_none');
+      }
       if (reports.length > 0) {
         const rows = reports.map(r => ({
           id: r.id,
@@ -471,12 +476,70 @@ class SupabaseService {
    */
   public async pullFromSupabase(): Promise<{ success: boolean; message: string }> {
     try {
+      const demoTeacherNames = [
+        'Nguyễn Văn An', 'Lò Thị Mai', 'Trần Thị Thu', 'Hoàng Văn Bình', 'Điêu Văn Tiến',
+        'Trần Quốc Hưng', 'Hoàng Thị Lan', 'Lò Văn Chiến', 'Nông Thị Thảo', 'Đèo Văn Nam',
+        'Vàng A Tủa', 'Lê Thị Hồng', 'Lý A Sùng', 'Nguyễn Thị Ngọc', 'Hà Văn Dũng',
+        'Đặng Minh Tuấn', 'Nùng Thị Hoa', 'Vũ Đình Trọng', 'Mai Thị Hằng', 'Tạ Văn Quyết'
+      ];
+
       // 1. Lấy lớp học
-      const { data: clsData, error: clsErr } = await supabase.from('classes').select('raw_data');
+      const { data: clsData, error: clsErr } = await supabase.from('classes').select('*');
       if (!clsErr && clsData && clsData.length > 0) {
-        const classes = clsData.map(c => c.raw_data).filter(Boolean);
+        let classes = clsData.map(c => {
+          const raw = c.raw_data || {};
+          const headTeacherName = c.head_teacher_name || raw.teacherName || '';
+          const isDemo = headTeacherName && demoTeacherNames.includes(headTeacherName);
+          const teacherName = isDemo ? 'Chưa phân công' : (headTeacherName || 'Chưa phân công');
+          const teacherId = isDemo ? undefined : (c.head_teacher_id || raw.teacherId);
+          const teacherPhone = isDemo ? undefined : (c.head_teacher_phone || raw.teacherPhone);
+          return {
+            ...raw,
+            id: c.id,
+            code: c.code || raw.code,
+            name: c.name || raw.name,
+            grade: c.grade || raw.grade,
+            room: c.room || raw.room,
+            isActive: raw.isActive !== false,
+            teacherId,
+            teacherName,
+            teacherPhone,
+            totalStudents: c.total_students ?? raw.totalStudents ?? 0,
+            boardingCount: c.boarding_count ?? raw.boardingCount ?? 0,
+            dayCount: c.day_count ?? raw.dayCount ?? 0,
+          };
+        });
         if (classes.length > 0) {
           localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
+          localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+        }
+      }
+
+      // 1.5. Lấy hồ sơ giáo viên
+      const { data: tchData, error: tchErr } = await supabase.from('teachers').select('*');
+      if (!tchErr && tchData && tchData.length > 0) {
+        const remoteTeachers = tchData
+          .map(t => {
+            const raw = t.raw_data || {};
+            return {
+              ...raw,
+              id: t.id,
+              teacherCode: t.teacher_code || raw.teacherCode,
+              fullName: t.full_name || raw.fullName,
+              email: t.email || raw.email,
+              phone: t.phone || raw.phone,
+              role: t.role || raw.role || 'HEAD_TEACHER',
+              assignedClassId: t.assigned_class_id || raw.assignedClassId,
+              assignedClassName: t.assigned_class_name || raw.assignedClassName,
+              employmentStatus: t.employment_status || raw.employmentStatus || 'ACTIVE',
+              accountStatus: t.account_status || raw.accountStatus || 'ACTIVE',
+              schoolYearId: t.school_year_id || raw.schoolYearId || '2026-2027',
+            };
+          })
+          .filter(t => !demoTeacherNames.includes(t.fullName));
+        if (remoteTeachers.length > 0) {
+          localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(remoteTeachers));
+          localStorage.setItem('thcs_banbo_teachers', JSON.stringify(remoteTeachers));
         }
       }
 
@@ -492,7 +555,21 @@ class SupabaseService {
       // 3. Lấy báo cáo điểm danh
       const { data: repData, error: repErr } = await supabase.from('attendance_reports').select('raw_data');
       if (!repErr && repData && repData.length > 0) {
-        const reports = repData.map(r => r.raw_data).filter(Boolean);
+        let reports = repData.map(r => r.raw_data).filter(Boolean);
+        reports = reports.map(r => {
+          if (
+            (r.teacherName && demoTeacherNames.includes(r.teacherName)) ||
+            (r.submittedBy && demoTeacherNames.includes(r.submittedBy))
+          ) {
+            return {
+              ...r,
+              teacherId: '',
+              teacherName: 'Chưa phân công',
+              submittedBy: 'Chưa phân công',
+            };
+          }
+          return r;
+        });
         if (reports.length > 0) {
           localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
         }
@@ -505,9 +582,34 @@ class SupabaseService {
       }
 
       // 5. Lấy tài khoản người dùng
-      const { data: usrData, error: usrErr } = await supabase.from('users').select('raw_data');
+      const { data: usrData, error: usrErr } = await supabase.from('users').select('*');
       if (!usrErr && usrData && usrData.length > 0) {
-        const remoteUsers: User[] = usrData.map(u => u.raw_data).filter(Boolean);
+        const remoteUsers: User[] = usrData
+          .map(u => {
+            const raw = u.raw_data || {};
+            return {
+              ...raw,
+              id: u.id,
+              username: u.username || raw.username,
+              name: u.name || raw.name,
+              fullName: u.name || raw.fullName || raw.name,
+              email: u.email || raw.email,
+              password: u.password || raw.password,
+              role: u.role || raw.role,
+              title: u.title || raw.title,
+              phone: u.phone || raw.phone,
+              assignedClassId: u.assigned_class_id || raw.assignedClassId,
+              assignedClassName: u.assigned_class_name || raw.assignedClassName,
+              accountStatus: u.account_status || raw.accountStatus || 'ACTIVE',
+              isActive: u.is_active !== false,
+            };
+          })
+          .filter(Boolean)
+          .filter(u => {
+            if (u.id.startsWith('user_gv6') || u.id.startsWith('user_gv7') || u.id.startsWith('user_gv8') || u.id.startsWith('user_gv9')) return false;
+            if (demoTeacherNames.includes(u.name || '') || demoTeacherNames.includes(u.fullName || '')) return false;
+            return true;
+          });
         if (remoteUsers.length > 0) {
           const raw = localStorage.getItem(STORAGE_KEYS.USERS);
           const localUsers: User[] = raw ? JSON.parse(raw) : [];
@@ -516,6 +618,61 @@ class SupabaseService {
           remoteUsers.forEach(u => map.set(u.id, u));
           localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(Array.from(map.values())));
         }
+      }
+
+      // Đồng bộ thông tin GVCN vào classes
+      try {
+        const rawCls = localStorage.getItem(STORAGE_KEYS.CLASSES);
+        const rawUsrs = localStorage.getItem(STORAGE_KEYS.USERS);
+        const rawTchs = localStorage.getItem(STORAGE_KEYS.TEACHERS);
+        if (rawCls && rawUsrs) {
+          let clss: SchoolClass[] = JSON.parse(rawCls);
+          const usrs: User[] = JSON.parse(rawUsrs);
+          const tchs: any[] = rawTchs ? JSON.parse(rawTchs) : [];
+          clss = clss.map(cls => {
+            const clsNameNorm = cls.name.trim().toUpperCase();
+            const clsIdNorm = cls.id.trim().toLowerCase();
+            const u = usrs.find(usr => {
+              if (usr.accountStatus === 'LOCKED' || usr.isActive === false) return false;
+              const uClass = (usr.assignedClassName || '').trim().toUpperCase();
+              const uClassId = (usr.assignedClassId || '').trim().toLowerCase();
+              return (
+                (uClass && (uClass === clsNameNorm || `LỚP ${uClass}` === clsNameNorm)) ||
+                (uClassId && (uClassId === clsIdNorm || uClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+                (cls.teacherId && (usr.id === cls.teacherId || usr.teacherId === cls.teacherId))
+              );
+            });
+            const t = !u ? tchs.find(tch => {
+              const tClass = (tch.assignedClassName || '').trim().toUpperCase();
+              const tClassId = (tch.assignedClassId || '').trim().toLowerCase();
+              return (
+                (tClass && (tClass === clsNameNorm || `LỚP ${tClass}` === clsNameNorm)) ||
+                (tClassId && (tClassId === clsIdNorm || tClassId === `cls_${clsNameNorm.toLowerCase()}`)) ||
+                (cls.teacherId && tch.id === cls.teacherId)
+              );
+            }) : null;
+            if (u) {
+              return {
+                ...cls,
+                teacherId: u.id,
+                teacherName: u.fullName || u.name,
+                teacherPhone: u.phone || cls.teacherPhone,
+              };
+            } else if (t) {
+              return {
+                ...cls,
+                teacherId: t.id,
+                teacherName: t.fullName,
+                teacherPhone: t.phone || cls.teacherPhone,
+              };
+            }
+            return cls;
+          });
+          localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(clss));
+          localStorage.setItem('thcs_banbo_classes', JSON.stringify(clss));
+        }
+      } catch {
+        // ignore
       }
 
       window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));

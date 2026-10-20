@@ -402,32 +402,12 @@ export class TeacherAssignmentService {
     return { success: true, message: 'Đã hủy phân công tạm thời.' };
   }
 
+  public clearAllAssignments() {
+    this.saveAssignments([]);
+  }
+
   private generateInitialAssignments(): TeacherAssignment[] {
-    const classes = storageService.getClasses();
-    const teachers = teacherService.getTeachers();
-    const result: TeacherAssignment[] = [];
-
-    classes.forEach(c => {
-      const tch = teachers.find(t => t.assignedClassName === c.name || t.assignedClassId === c.id);
-      if (tch) {
-        result.push({
-          id: `asg_init_${c.name.toLowerCase()}`,
-          teacherId: tch.id,
-          teacherName: tch.fullName,
-          classId: c.id,
-          className: c.name,
-          schoolYearId: '2026-2027',
-          startDate: '2026-08-15',
-          status: 'ACTIVE',
-          reason: 'Phân công GVCN đầu năm học 2026-2027',
-          createdBy: 'Phạm Ngọc Thúy',
-          createdAt: '2026-08-15T00:00:00.000Z',
-          updatedAt: '2026-08-15T00:00:00.000Z',
-        });
-      }
-    });
-
-    return result;
+    return [];
   }
 }
 

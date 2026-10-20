@@ -28,8 +28,42 @@ export const TeacherClassPage: React.FC<TeacherClassPageProps> = ({
   const [filterType, setFilterType] = useState<'all' | 'boarding' | 'non_boarding'>('all');
 
   const assignedClass = useMemo(() => {
-    if (!currentUser?.assignedClassId) return null;
-    return storageService.getClassById(currentUser.assignedClassId) || null;
+    if (!currentUser) return null;
+    if (currentUser.assignedClassId) {
+      const cls = storageService.getClassById(currentUser.assignedClassId);
+      if (cls) return cls;
+    }
+    if (currentUser.assignedClassName) {
+      const cls = storageService.getClassById(currentUser.assignedClassName);
+      if (cls) return cls;
+    }
+    const classes = storageService.getClasses();
+    const cleanName = (currentUser.fullName || currentUser.name || '').trim().toLowerCase();
+    const matchedClass = classes.find(c =>
+      (currentUser.id && c.teacherId === currentUser.id) ||
+      (currentUser.teacherId && c.teacherId === currentUser.teacherId) ||
+      (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && c.teacherPhone && c.teacherPhone === currentUser.phone)
+    );
+    if (matchedClass) return matchedClass;
+
+    try {
+      const rawTeachers = localStorage.getItem('thcs_banbo_v2_teachers');
+      if (rawTeachers) {
+        const teachers: any[] = JSON.parse(rawTeachers);
+        const tch = teachers.find(t =>
+          (currentUser.teacherId && t.id === currentUser.teacherId) ||
+          (currentUser.email && t.email && t.email.trim().toLowerCase() === currentUser.email.trim().toLowerCase()) ||
+          (cleanName && t.fullName && t.fullName.trim().toLowerCase() === cleanName)
+        );
+        if (tch && (tch.assignedClassId || tch.assignedClassName)) {
+          return storageService.getClassById(tch.assignedClassId || tch.assignedClassName) || null;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
   }, [currentUser]);
 
   const students: Student[] = useMemo(() => {

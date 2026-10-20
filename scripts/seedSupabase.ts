@@ -34,8 +34,8 @@ async function seed() {
   if (setErr) console.error('Lỗi settings:', setErr.message);
   else console.log('✓ Cài đặt trường học: Thành công');
 
-  // 2. Tài khoản người dùng (users) - 23 tài khoản bao gồm BGH, Quản trị và 20 GVCN
-  console.log('2. Đang nạp bảng users (23 tài khoản)...');
+  // 2. Tài khoản người dùng chính thức (users - 3 tài khoản BGH & Quản trị)
+  console.log('2. Đang nạp bảng users (3 tài khoản chính thức)...');
   const userRows = INITIAL_USERS.map(u => ({
     id: u.id,
     username: u.username,
@@ -45,8 +45,8 @@ async function seed() {
     role: u.role,
     title: u.title || '',
     phone: u.phone || '',
-    assigned_class_id: u.assignedClassId || null,
-    assigned_class_name: u.assignedClassName || null,
+    assigned_class_id: null,
+    assigned_class_name: null,
     account_status: 'ACTIVE',
     is_active: true,
     raw_data: { ...u, password: u.password || '123456' },
@@ -57,7 +57,7 @@ async function seed() {
   if (userErr) console.error('Lỗi users:', userErr.message);
   else console.log(`✓ Tài khoản người dùng: Đã nạp thành công ${userRows.length} tài khoản`);
 
-  // 3. Danh sách lớp học (classes) - 20 lớp
+  // 3. Danh sách lớp học (classes) - 20 lớp (Chưa phân công GVCN)
   console.log('3. Đang nạp bảng classes (20 lớp học)...');
   const classRows = INITIAL_CLASSES.map(c => {
     const clsStudents = INITIAL_STUDENTS.filter(s => s.className === c.name);
@@ -68,9 +68,9 @@ async function seed() {
       name: c.name,
       grade: c.grade,
       room: c.room || '',
-      head_teacher_id: c.teacherId || null,
-      head_teacher_name: c.teacherName || '',
-      head_teacher_phone: c.teacherPhone || '',
+      head_teacher_id: null,
+      head_teacher_name: 'Chưa phân công',
+      head_teacher_phone: '',
       total_students: clsStudents.length,
       male_count: clsStudents.filter(s => s.gender === 'male').length,
       female_count: clsStudents.filter(s => s.gender === 'female').length,
