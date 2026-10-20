@@ -3,6 +3,7 @@ import { User, UserRole, UserPermissions } from '../types';
 import { storageService } from '../services/storageService';
 import { permissionService } from '../services/permissionService';
 import { supabase } from '../services/supabaseService';
+import { INITIAL_CLASSES } from '../data/initialSeedData';
 
 export interface RegisterData {
   username: string;
@@ -305,8 +306,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const switchUser = (userId: string) => {
     const users = storageService.getUsers();
-    const target = users.find(u => u.id === userId);
+    let target = users.find(u => u.id === userId);
     if (target) {
+      if (!target.assignedClassId || !target.assignedClassName) {
+        const classes = storageService.getClasses();
+        const cleanName = (target.fullName || target.name || '').trim().toLowerCase();
+        const matched = classes.find(c =>
+          c.teacherId === target?.id ||
+          (target?.teacherId && c.teacherId === target.teacherId) ||
+          (cleanName && c.teacherName && c.teacherName.trim().toLowerCase() === cleanName) ||
+          (target?.phone && c.teacherPhone && c.teacherPhone === target.phone) ||
+          (target?.assignedClassName && c.name?.toUpperCase() === target.assignedClassName.toUpperCase())
+        ) || INITIAL_CLASSES.find(ic =>
+          (target?.id && ic.teacherId === target.id) ||
+          (target?.teacherId && ic.teacherId === target.teacherId) ||
+          (cleanName && ic.teacherName && ic.teacherName.trim().toLowerCase() === cleanName) ||
+          (target?.phone && ic.teacherPhone && ic.teacherPhone === target.phone)
+        );
+        if (matched) {
+          target = {
+            ...target,
+            assignedClassId: matched.id,
+            assignedClassName: matched.name,
+          };
+          storageService.saveUser(target);
+        }
+      }
       target.lastLoginAt = new Date().toISOString();
       storageService.saveUser(target);
       storageService.setCurrentUser(target);

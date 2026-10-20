@@ -7,7 +7,7 @@ export const INITIAL_USERS: User[] = [
     name: 'Vũ Hồng Phương',
     fullName: 'Vũ Hồng Phương',
     email: 'vuhongphuongthcsbanbo@gmail.com',
-    role: 'admin_tpt',
+    role: 'ADMIN',
     phone: '0988 567 899',
     title: 'Quản trị viên · THCS Bản Bo',
     accountStatus: 'ACTIVE',

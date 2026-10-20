@@ -131,8 +131,11 @@ export class TeacherAssignmentService {
       performedBy: performedByName,
       performedAt: new Date().toISOString(),
       reason,
-      newValue: JSON.stringify({ teacherId: targetTeacher.id, teacherName: targetTeacher.fullName, className: cls.name }),
     });
+
+    storageService.syncClassesWithAssignedTeachers();
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
 
     return { success: true, message: `Phân công GVCN lớp ${cls.name} thành công!` };
   }
@@ -271,6 +274,10 @@ export class TeacherAssignmentService {
       oldValue: JSON.stringify({ teacherId: oldTeacherId, teacherName: oldTeacherName }),
       newValue: JSON.stringify({ teacherId: newTeacher.id, teacherName: newTeacher.fullName, effectiveDate }),
     });
+
+    storageService.syncClassesWithAssignedTeachers();
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
 
     return {
       success: true,

@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
+import { INITIAL_CLASSES } from '../data/initialSeedData';
 import { formatFullVietnameseDate, getTodayDateString } from '../utils/formatters';
 import { PageId } from '../components/common/Sidebar';
 import { AttendanceReport, SessionType } from '../types';
@@ -40,7 +41,19 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
   currentDate,
   onNavigate,
 }) => {
-  const { currentUser } = useAuth();
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(t => t + 1);
+    window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_users_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_users_changed', handleUpdate);
+    };
+  }, []);
 
   // Get assigned class
   const assignedClass = useMemo(() => {
@@ -75,7 +88,7 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
 
     // 4. Tìm trong danh sách hồ sơ giáo viên
     try {
-      const rawTeachers = localStorage.getItem('thcs_banbo_v2_teachers');
+      const rawTeachers = localStorage.getItem('thcs_banbo_v2_teachers') || localStorage.getItem('thcs_banbo_teachers');
       if (rawTeachers) {
         const teachers: any[] = JSON.parse(rawTeachers);
         const tch = teachers.find(t =>
@@ -98,8 +111,24 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
       // ignore
     }
 
+    // 5. Fallback trực tiếp theo danh mục 20 lớp chính thức THCS Bản Bo
+    const defaultCls = INITIAL_CLASSES.find(ic =>
+      (currentUser.id && ic.teacherId === currentUser.id) ||
+      (currentUser.teacherId && ic.teacherId === currentUser.teacherId) ||
+      (cleanName && ic.teacherName && ic.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && ic.teacherPhone && ic.teacherPhone === currentUser.phone) ||
+      (currentUser.assignedClassName && ic.name.toUpperCase() === currentUser.assignedClassName.toUpperCase())
+    );
+    if (defaultCls) {
+      currentUser.assignedClassId = defaultCls.id;
+      currentUser.assignedClassName = defaultCls.name;
+      storageService.saveUser(currentUser);
+      storageService.setCurrentUser(currentUser);
+      return defaultCls;
+    }
+
     return null;
-  }, [currentUser]);
+  }, [currentUser, refreshTick]);
 
   // If teacher is not assigned to any class (Mục II)
   if (!assignedClass) {

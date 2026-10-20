@@ -222,6 +222,10 @@ export class UserService {
       }
     }
 
+    storageService.syncClassesWithAssignedTeachers();
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+
     storageService.saveAuditLog({
       id: `log_bulk_create_${Date.now()}`,
       timestamp: new Date().toISOString(),
@@ -660,6 +664,10 @@ export class UserService {
         userChanged = true;
       }
     });
+
+    storageService.syncClassesWithAssignedTeachers();
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
 
     storageService.saveAuditLog({
       id: `log_bulk_activate_${Date.now()}`,

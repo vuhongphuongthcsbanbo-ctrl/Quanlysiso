@@ -86,10 +86,22 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('thcs_banbo_training_mode_changed', handleModeChange);
   }, []);
 
-  const getRoleBadge = (role?: string) => {
+  const getRoleBadge = (role?: string, user?: User | null) => {
+    // Thầy Vũ Hồng Phương CHỈ LÀ QUẢN TRỊ VIÊN (Admin), KHÔNG PHẢI TỔNG PHỤ TRÁCH ĐỘI
+    const isVu = user && (user.id === 'user_vuhongphuong' || (user.name || '').includes('Vũ Hồng Phương') || (user.fullName || '').includes('Vũ Hồng Phương'));
+    if (isVu) {
+      return <span className="text-[11px] bg-purple-50 text-purple-800 border border-purple-200 font-bold px-2 py-0.5 rounded-lg">Quản trị viên</span>;
+    }
+
+    const isThuy = user && (user.id === 'user_tpt' || (user.name || '').includes('Phạm Ngọc Thúy') || (user.fullName || '').includes('Phạm Ngọc Thúy'));
+    if (isThuy) {
+      return <span className="text-[11px] bg-rose-50 text-rose-800 border border-rose-200 font-bold px-2 py-0.5 rounded-lg">Tổng Phụ trách Đội</span>;
+    }
+
     switch (role) {
-      case 'admin_tpt':
       case 'ADMIN':
+        return <span className="text-[11px] bg-purple-50 text-purple-800 border border-purple-200 font-bold px-2 py-0.5 rounded-lg">Quản trị viên</span>;
+      case 'admin_tpt':
         return <span className="text-[11px] bg-rose-50 text-rose-800 border border-rose-200 font-bold px-2 py-0.5 rounded-lg">Tổng Phụ trách Đội</span>;
       case 'principal':
       case 'BOARD_OF_MANAGEMENT':
@@ -259,7 +271,7 @@ export const Header: React.FC<HeaderProps> = ({
                           {u.title} {u.assignedClassName ? `(${u.assignedClassName})` : ''}
                         </div>
                       </div>
-                      {getRoleBadge(u.role)}
+                      {getRoleBadge(u.role, u)}
                     </button>
                   ))}
                 </div>
@@ -298,7 +310,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="p-3 border-b border-slate-100 space-y-0.5">
                   <div className="text-xs font-bold text-slate-900">{currentUser?.name}</div>
                   <div className="text-[11px] text-slate-500">{currentUser?.email}</div>
-                  <div className="pt-1">{getRoleBadge(currentUser?.role)}</div>
+                  <div className="pt-1">{getRoleBadge(currentUser?.role, currentUser)}</div>
                 </div>
 
                 <div className="py-1 space-y-0.5 text-xs">

@@ -166,7 +166,7 @@ class StorageService {
         vuUser.fullName = 'Vũ Hồng Phương';
         vuUser.username = 'vuhongphuong';
         vuUser.email = vuEmail;
-        vuUser.role = 'admin_tpt';
+        vuUser.role = 'ADMIN';
         vuUser.title = 'Quản trị viên · THCS Bản Bo';
         vuUser.accountStatus = 'ACTIVE';
         vuUser.isActive = true;
@@ -177,7 +177,7 @@ class StorageService {
           name: 'Vũ Hồng Phương',
           fullName: 'Vũ Hồng Phương',
           email: vuEmail,
-          role: 'admin_tpt',
+          role: 'ADMIN',
           phone: '0988 567 899',
           title: 'Quản trị viên · THCS Bản Bo',
           accountStatus: 'ACTIVE',
@@ -405,7 +405,7 @@ class StorageService {
         name: 'Vũ Hồng Phương',
         fullName: 'Vũ Hồng Phương',
         email: 'vuhongphuongthcsbanbo@gmail.com',
-        role: 'admin_tpt',
+        role: 'ADMIN',
         phone: '0988 567 899',
         title: 'Quản trị viên · THCS Bản Bo',
         accountStatus: 'ACTIVE',
@@ -725,8 +725,14 @@ class StorageService {
     }
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(users));
 
+    // Cập nhật người dùng hiện tại nếu trùng id
+    const current = this.getCurrentUser();
+    if (current && current.id === user.id) {
+      this.setCurrentUser({ ...current, ...user });
+    }
+
     // Tự động đồng bộ sang danh sách lớp học nếu user là GVCN có phân công lớp
-    if ((user.assignedClassName || user.assignedClassId) && (user.role === 'HEAD_TEACHER' || user.role === 'teacher_gvcn')) {
+    if ((user.assignedClassName || user.assignedClassId) && (user.role === 'HEAD_TEACHER' || user.role === 'teacher_gvcn' || (user.role as string) === 'TEACHER')) {
       try {
         const raw = localStorage.getItem(STORAGE_KEYS.CLASSES);
         const classes: SchoolClass[] = raw ? JSON.parse(raw) : INITIAL_CLASSES;
@@ -744,6 +750,10 @@ class StorageService {
         // ignore
       }
     }
+
+    this.syncClassesWithAssignedTeachers();
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_users_changed'));
   }
 
   public updateUserStatus(userId: string, isActive: boolean) {
@@ -860,6 +870,8 @@ class StorageService {
       if (changed) {
         localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
         localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+        window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
       }
     } catch {
       // ignore
@@ -995,11 +1007,15 @@ class StorageService {
     }
     localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
     localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
   }
 
   public saveAllClasses(classes: SchoolClass[]) {
     localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(classes));
     localStorage.setItem('thcs_banbo_classes', JSON.stringify(classes));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
   }
 
   public deleteClass(classId: string): boolean {

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
+import { INITIAL_CLASSES } from '../data/initialSeedData';
 import { PageId } from '../components/common/Sidebar';
 import { Student } from '../types';
 import {
@@ -63,6 +64,17 @@ export const TeacherClassPage: React.FC<TeacherClassPageProps> = ({
     } catch {
       // ignore
     }
+
+    // 5. Fallback trực tiếp theo danh mục 20 lớp chính thức THCS Bản Bo
+    const defaultCls = INITIAL_CLASSES.find(ic =>
+      (currentUser.id && ic.teacherId === currentUser.id) ||
+      (currentUser.teacherId && ic.teacherId === currentUser.teacherId) ||
+      (cleanName && ic.teacherName && ic.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && ic.teacherPhone && ic.teacherPhone === currentUser.phone) ||
+      (currentUser.assignedClassName && ic.name.toUpperCase() === currentUser.assignedClassName.toUpperCase())
+    );
+    if (defaultCls) return defaultCls;
+
     return null;
   }, [currentUser]);
 

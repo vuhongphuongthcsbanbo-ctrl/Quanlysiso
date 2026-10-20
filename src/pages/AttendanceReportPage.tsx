@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
+import { INITIAL_CLASSES } from '../data/initialSeedData';
 import { calculateAttendanceSummary, AttendanceSummaryCalculation } from '../services/reportCalculationService';
 import { draftService } from '../services/draftService';
 import {
@@ -111,6 +112,17 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
     } catch {
       // ignore
     }
+
+    // Fallback danh mục 20 lớp chính thức
+    const defaultCls = INITIAL_CLASSES.find(ic =>
+      (currentUser.id && ic.teacherId === currentUser.id) ||
+      (currentUser.teacherId && ic.teacherId === currentUser.teacherId) ||
+      (cleanName && ic.teacherName && ic.teacherName.trim().toLowerCase() === cleanName) ||
+      (currentUser.phone && ic.teacherPhone && ic.teacherPhone === currentUser.phone) ||
+      (currentUser.assignedClassName && ic.name.toUpperCase() === currentUser.assignedClassName.toUpperCase())
+    );
+    if (defaultCls) return defaultCls;
+
     return null;
   }, [currentUser, allClasses]);
 
