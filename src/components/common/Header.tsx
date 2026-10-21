@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { storageService } from '../../services/storageService';
 import { formatVietnameseDate, getTodayDateString } from '../../utils/formatters';
+import { User } from '../../types';
 import {
   ChevronDown,
   LogOut,

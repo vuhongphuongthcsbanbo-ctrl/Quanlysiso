@@ -35,6 +35,7 @@ import {
   excelImportService,
   ClassStudentBreakdown,
 } from '../services/excelImportService';
+import { supabaseService } from '../services/supabaseService';
 import { WorkbookOverview } from '../components/admin/WorkbookOverview';
 import { ColumnMappingStep } from '../components/admin/ColumnMappingStep';
 import { ImportPreviewStep } from '../components/admin/ImportPreviewStep';
@@ -235,6 +236,9 @@ export const StudentImportPage: React.FC<StudentImportPageProps> = ({ onNavigate
       if (res.success) {
         setImportResult({ count: res.importedCount, message: res.message });
 
+        // Tự động đồng bộ ngay lên Supabase đám mây
+        supabaseService.pushAllToSupabase().catch(err => console.warn('Lỗi đồng bộ Supabase:', err));
+
         // Nếu còn học sinh chưa xác định diện Bán trú, chuyển sang bước Bán trú
         const hasUnset = parsedItems.some(it => it.boardingType === 'UNSET');
         if (hasUnset) {
@@ -260,6 +264,8 @@ export const StudentImportPage: React.FC<StudentImportPageProps> = ({ onNavigate
       setIsLoading(false);
       if (res.success) {
         setImportResult({ count: res.count, message: `Đã nạp thành công ${res.count} học sinh mẫu cho 20 lớp chính thức!` });
+        // Tự động đồng bộ ngay lên Supabase đám mây
+        supabaseService.pushAllToSupabase().catch(err => console.warn('Lỗi đồng bộ Supabase:', err));
         setCurrentStep('FINAL_VERIFY');
       }
     }, 400);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
 import { exportService } from '../services/exportService';
@@ -26,6 +26,18 @@ export const ClassesPage: React.FC<ClassesPageProps> = ({ onSelectClassDetails }
   const { isAdmin } = useAuth();
   const [classes, setClasses] = useState<SchoolClass[]>(() => storageService.getClasses());
   const teachers = storageService.getUsers().filter(u => u.role === 'teacher_gvcn');
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setClasses(storageService.getClasses());
+    };
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+    };
+  }, []);
 
   // Form modal state
   const [isModalOpen, setIsModalOpen] = useState(false);

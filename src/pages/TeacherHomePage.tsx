@@ -41,6 +41,7 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
   currentDate,
   onNavigate,
 }) => {
+  const { currentUser } = useAuth();
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -48,10 +49,12 @@ export const TeacherHomePage: React.FC<TeacherHomePageProps> = ({
     window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
     window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
     window.addEventListener('thcs_banbo_users_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
     return () => {
       window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
       window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
       window.removeEventListener('thcs_banbo_users_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
     };
   }, []);
 

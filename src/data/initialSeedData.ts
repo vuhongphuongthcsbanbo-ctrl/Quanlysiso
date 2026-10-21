@@ -1,4 +1,5 @@
 import { User, SchoolClass, Student, AttendanceReport, AttendanceRecord, AuditLog } from '../types';
+import { OFFICIAL_SCHOOL_STUDENTS } from './officialSchoolStudents';
 
 export const INITIAL_USERS: User[] = [
   {
@@ -658,95 +659,9 @@ export const INITIAL_CLASSES: SchoolClass[] = [
   { id: 'cls_9a5', code: '9A5', name: '9A5', grade: 9, room: 'Phòng 405', isActive: true, teacherId: 'usr_1792072933589_h5cs', teacherName: 'Nguyễn Minh Tuấn', teacherPhone: '0986449001' },
 ];
 
-// Helper to generate realistic students for all 20 classes
-const generateInitialStudents = (): Student[] => {
-  const students: Student[] = [];
-
-  const classConfigs = [
-    // Khối 6
-    { id: 'cls_6a1', name: '6A1', grade: 6, count: 34, boardingRatio: 0.76 },
-    { id: 'cls_6a2', name: '6A2', grade: 6, count: 32, boardingRatio: 0.72 },
-    { id: 'cls_6a3', name: '6A3', grade: 6, count: 33, boardingRatio: 0.70 },
-    { id: 'cls_6a4', name: '6A4', grade: 6, count: 31, boardingRatio: 0.74 },
-    { id: 'cls_6a5', name: '6A5', grade: 6, count: 30, boardingRatio: 0.80 },
-    // Khối 7
-    { id: 'cls_7a1', name: '7A1', grade: 7, count: 35, boardingRatio: 0.74 },
-    { id: 'cls_7a2', name: '7A2', grade: 7, count: 34, boardingRatio: 0.71 },
-    { id: 'cls_7a3', name: '7A3', grade: 7, count: 32, boardingRatio: 0.75 },
-    { id: 'cls_7a4', name: '7A4', grade: 7, count: 33, boardingRatio: 0.69 },
-    { id: 'cls_7a5', name: '7A5', grade: 7, count: 30, boardingRatio: 0.73 },
-    // Khối 8
-    { id: 'cls_8a1', name: '8A1', grade: 8, count: 32, boardingRatio: 0.75 },
-    { id: 'cls_8a2', name: '8A2', grade: 8, count: 31, boardingRatio: 0.71 },
-    { id: 'cls_8a3', name: '8A3', grade: 8, count: 33, boardingRatio: 0.70 },
-    { id: 'cls_8a4', name: '8A4', grade: 8, count: 29, boardingRatio: 0.69 },
-    { id: 'cls_8a5', name: '8A5', grade: 8, count: 30, boardingRatio: 0.77 },
-    // Khối 9
-    { id: 'cls_9a1', name: '9A1', grade: 9, count: 32, boardingRatio: 0.72 },
-    { id: 'cls_9a2', name: '9A2', grade: 9, count: 30, boardingRatio: 0.70 },
-    { id: 'cls_9a3', name: '9A3', grade: 9, count: 31, boardingRatio: 0.68 },
-    { id: 'cls_9a4', name: '9A4', grade: 9, count: 28, boardingRatio: 0.71 },
-    { id: 'cls_9a5', name: '9A5', grade: 9, count: 29, boardingRatio: 0.76 },
-  ];
-
-  const firstNamesM = [
-    'Văn Nam', 'Văn Chung', 'Văn Dũng', 'A Sùng', 'A Pao', 'Văn Phong',
-    'Thành Long', 'Hữu Thắng', 'Minh Hải', 'Đức Huy', 'Quốc Bảo', 'Văn Tuấn',
-    'A Vàng', 'Văn Sơn', 'Tuấn Kiệt', 'A Chớ', 'Văn Hiệp', 'A Thào'
-  ];
-  const firstNamesF = [
-    'Thị Mai', 'Thị Thảo', 'Thị Mẩy', 'Thị Huệ', 'Thị Sen', 'Thị Hương',
-    'Ngọc Ánh', 'Thu Trang', 'Hồng Nhung', 'Thị Duyên', 'Thị Pằng', 'Thị Sao',
-    'Như Quỳnh', 'Thị Liễu', 'Thị Lan', 'Thị Mỷ', 'Thị Chứ', 'Thị Dua'
-  ];
-  const lastNames = ['Lò', 'Điêu', 'Vàng', 'Cứ', 'Nông', 'Đèo', 'Hoàng', 'Hà', 'Lý', 'Trần', 'Nguyễn', 'Vũ', 'Hùng'];
-  const hamlets = ['Bản Nà Bó', 'Bản Hợp 1', 'Bản Hợp 2', 'Bản Nà Khương', 'Bản Phiêng Đăm', 'Bản Chát', 'Bản Tiên Bình'];
-  const ethnicList = ['Thái', 'Thái', 'Mông', 'Dao', 'Lự', 'Giáy', 'Kinh'];
-
-  let globalIndex = 1;
-
-  for (const cfg of classConfigs) {
-    const boardingTarget = Math.round(cfg.count * cfg.boardingRatio);
-    for (let i = 1; i <= cfg.count; i++) {
-      const isMale = (i % 2 === 1);
-      const lName = lastNames[(globalIndex + i) % lastNames.length];
-      const fName = isMale
-        ? firstNamesM[(globalIndex + i) % firstNamesM.length]
-        : firstNamesF[(globalIndex + i) % firstNamesF.length];
-      const fullName = `${lName} ${fName}`;
-      const isBoarding = i <= boardingTarget;
-      const birthYear = 2026 - (cfg.grade + 5);
-      const month = String((i % 12) + 1).padStart(2, '0');
-      const day = String((i % 28) + 1).padStart(2, '0');
-
-      students.push({
-        id: `stu_${cfg.name.toLowerCase()}_${String(i).padStart(2, '0')}`,
-        code: `HS${cfg.grade}${String(i).padStart(3, '0')}`,
-        fullName,
-        dateOfBirth: `${birthYear}-${month}-${day}`,
-        gender: isMale ? 'male' : 'female',
-        classId: cfg.id,
-        className: cfg.name,
-        grade: cfg.grade,
-        boardingType: isBoarding ? 'BOARDING' : 'NON_BOARDING',
-        studentType: isBoarding ? 'boarding' : 'day',
-        parentName: `${lastNames[(i * 3) % lastNames.length]} Văn Phóng`,
-        parentPhone: `098${String(1000000 + globalIndex).slice(0, 7)}`,
-        address: hamlets[(i + globalIndex) % hamlets.length],
-        ethnicGroup: ethnicList[(i + globalIndex) % ethnicList.length],
-        status: 'active',
-        createdAt: '2026-08-20',
-      });
-      globalIndex++;
-    }
-  }
-
-  return students;
-};
-
 export const DEMO_PRESET_STUDENTS: Student[] = [];
-// Danh sách học sinh trường THCS Bản Bo: Để trống để nhà trường tải lên danh sách học sinh thực tế từ file Excel
-export const INITIAL_STUDENTS: Student[] = [];
+// Danh sách 781 học sinh chính thức của 20 lớp Trường THCS Bản Bo đã được nạp và kích hoạt
+export const INITIAL_STUDENTS: Student[] = OFFICIAL_SCHOOL_STUDENTS;
 
 // Generate initial demo attendance reports for testing all states
 export const generateInitialReports = (todayStr: string, students: Student[], classes: SchoolClass[]): AttendanceReport[] => {

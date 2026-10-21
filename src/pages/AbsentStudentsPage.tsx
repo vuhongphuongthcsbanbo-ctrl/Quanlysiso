@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { storageService } from '../services/storageService';
 import { attendanceService } from '../services/attendanceService';
 import { exportService } from '../services/exportService';
@@ -30,7 +30,21 @@ export const AbsentStudentsPage: React.FC<AbsentStudentsPageProps> = ({
   const [boardingTypeFilter, setBoardingTypeFilter] = useState<'all' | 'BOARDING' | 'NON_BOARDING'>('all');
   const [excusedFilter, setExcusedFilter] = useState<'all' | 'excused' | 'unexcused'>('all');
 
-  const classes = storageService.getClasses();
+  const [refreshTick, setRefreshTick] = useState<number>(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(v => v + 1);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+    };
+  }, []);
+
+  const classes = useMemo(() => storageService.getClasses(), [refreshTick]);
 
   // Load absents matching all filters
   const absentRecords = useMemo(() => {
@@ -42,7 +56,7 @@ export const AbsentStudentsPage: React.FC<AbsentStudentsPageProps> = ({
       searchTerm: searchTerm.trim() || undefined,
       includePending: true,
     });
-  }, [selectedDate, selectedGrade, selectedClassId, boardingTypeFilter, excusedFilter, searchTerm]);
+  }, [selectedDate, selectedGrade, selectedClassId, boardingTypeFilter, excusedFilter, searchTerm, refreshTick]);
 
   return (
     <div className="max-w-7xl mx-auto px-3 sm:px-6 py-4 space-y-4">

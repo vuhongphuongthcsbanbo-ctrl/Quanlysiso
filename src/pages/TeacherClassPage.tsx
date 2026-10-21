@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
 import { INITIAL_CLASSES } from '../data/initialSeedData';
@@ -27,6 +27,17 @@ export const TeacherClassPage: React.FC<TeacherClassPageProps> = ({
   const { currentUser } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'boarding' | 'non_boarding'>('all');
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(t => t + 1);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+    };
+  }, []);
 
   const assignedClass = useMemo(() => {
     if (!currentUser) return null;
@@ -81,7 +92,7 @@ export const TeacherClassPage: React.FC<TeacherClassPageProps> = ({
   const students: Student[] = useMemo(() => {
     if (!assignedClass) return [];
     return storageService.getStudentsByClass(assignedClass.id).filter(s => s.status === 'active' || !s.status);
-  }, [assignedClass]);
+  }, [assignedClass, refreshTick]);
 
   if (!assignedClass) {
     return (

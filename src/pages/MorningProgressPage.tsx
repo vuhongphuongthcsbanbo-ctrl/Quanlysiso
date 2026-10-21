@@ -29,6 +29,19 @@ export const MorningProgressPage: React.FC<MorningProgressPageProps> = ({ curren
   const [simulatedTime, setSimulatedTime] = useState<string>('');
   const [simulationResult, setSimulationResult] = useState<string | null>(null);
   const [reportPeriod, setReportPeriod] = useState<'DAY' | 'WEEK' | 'MONTH'>('DAY');
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(v => v + 1);
+    window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+    };
+  }, []);
 
   // Load state
   const timelineState = attendanceDeadlineService.getMorningTimelineState(

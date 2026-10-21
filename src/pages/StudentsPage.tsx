@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
+import { supabaseService } from '../services/supabaseService';
 import { exportService } from '../services/exportService';
 import { Student, SchoolClass, StudentType, StudentStatus } from '../types';
 import { ETHNIC_GROUPS } from '../config/constants';
@@ -21,6 +22,9 @@ import {
   ArrowRightLeft,
   AlertCircle,
   RotateCcw,
+  Database,
+  RefreshCw,
+  CloudCheck,
 } from 'lucide-react';
 import { ConfirmDialog } from '../theme/designSystem';
 
@@ -72,7 +76,50 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
   // Import feedback
   const [importNotice, setImportNotice] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
+  const [isSyncingSupabase, setIsSyncingSupabase] = useState(false);
   const [deletingStudent, setDeletingStudent] = useState<Student | null>(null);
+
+  // Lắng nghe thay đổi dữ liệu học sinh từ Supabase hoặc các màn hình khác
+  useEffect(() => {
+    const handleUpdate = () => {
+      setStudents(storageService.getStudents());
+    };
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+
+    // Luôn đảm bảo danh sách học sinh đầy đủ nhất từ Supabase
+    if (storageService.getStudents().length === 0) {
+      supabaseService.pullFromSupabase().catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+    };
+  }, []);
+
+  const handleSyncSupabase = async () => {
+    setIsSyncingSupabase(true);
+    setImportNotice(null);
+    setImportError(null);
+    try {
+      const pullRes = await supabaseService.pullFromSupabase();
+      if (pullRes.success) {
+        const cur = storageService.getStudents();
+        setStudents(cur);
+        setImportNotice(`Đã đồng bộ thành công! Hiện có ${cur.length} học sinh được lưu trữ bảo mật trên Supabase đám mây.`);
+      } else {
+        const pushRes = await supabaseService.pushAllToSupabase();
+        const cur = storageService.getStudents();
+        setStudents(cur);
+        setImportNotice(pushRes.message);
+      }
+    } catch (e: any) {
+      setImportError(`Lỗi đồng bộ Supabase: ${e?.message || 'Không thể kết nối'}`);
+    } finally {
+      setIsSyncingSupabase(false);
+    }
+  };
 
   // Filtered Students
   const filteredStudents = useMemo(() => {
@@ -325,6 +372,16 @@ export const StudentsPage: React.FC<StudentsPageProps> = ({ onSelectStudentProfi
 
         {isAdmin && (
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <button
+              onClick={handleSyncSupabase}
+              disabled={isSyncingSupabase}
+              className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs disabled:opacity-50"
+              title="Đồng bộ danh sách học sinh với đám mây Supabase PostgreSQL"
+            >
+              <Database className={`w-4 h-4 text-emerald-600 ${isSyncingSupabase ? 'animate-spin' : ''}`} />
+              <span>{isSyncingSupabase ? 'Đang đồng bộ...' : 'Đồng bộ Supabase'}</span>
+            </button>
+
             <button
               onClick={() => fileInputRef.current?.click()}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"

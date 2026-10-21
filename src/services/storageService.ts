@@ -248,12 +248,43 @@ class StorageService {
       }
     }
 
-    // Không nạp dữ liệu demo khi chưa có học sinh
-    if (rawV2 === null && !studentsClearedByUser) {
-      currentStudents = [];
+    // Loại bỏ mọi học sinh demo cũ nếu còn sót lại
+    currentStudents = currentStudents.filter(s => {
+      if (!s) return false;
+      if (s.isDemo === true) return false;
+      if (s.source === 'DEMO') return false;
+      if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+      return true;
+    });
+
+    // Nếu chưa có học sinh và chưa bị người dùng xóa, nạp ngay danh sách 781 học sinh chính thức
+    if ((rawV2 === null || currentStudents.length === 0) && !studentsClearedByUser && INITIAL_STUDENTS.length > 0) {
+      currentStudents = INITIAL_STUDENTS;
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
-      localStorage.setItem('thcs_banbo_dataset_status', 'NO_DATA');
+      localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
+    } else {
+      localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
+      localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
+    }
+
+    // Đồng bộ chuẩn sĩ số cho 20 lớp chính thức
+    if (currentStudents.length > 0) {
+      const classes = this.getClasses();
+      const updatedClasses = classes.map(c => {
+        const clsStudents = currentStudents.filter(s => (s.className === c.name || s.classId === c.id) && s.status === 'active');
+        return {
+          ...c,
+          totalStudents: clsStudents.length > 0 ? clsStudents.length : c.totalStudents,
+          boardingCount: clsStudents.filter(s => s.boardingType === 'BOARDING').length,
+          nonBoardingCount: clsStudents.filter(s => s.boardingType !== 'BOARDING').length,
+          dayCount: clsStudents.filter(s => s.boardingType !== 'BOARDING').length,
+          maleCount: clsStudents.filter(s => s.gender === 'male').length,
+          femaleCount: clsStudents.filter(s => s.gender === 'female').length,
+        };
+      });
+      localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
+      localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
     }
 
     const storedSettings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
@@ -644,15 +675,24 @@ class StorageService {
   // RESET TO DEMO DATA
   public resetToDemoData() {
     const todayStr = getTodayDateString();
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
     localStorage.setItem(STORAGE_KEYS.USERS, JSON.stringify(INITIAL_USERS));
     localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(INITIAL_CLASSES));
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
+    localStorage.setItem('thcs_banbo_students', JSON.stringify(INITIAL_STUDENTS));
+    localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
     localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(DEFAULT_SETTINGS));
-    const initialReports = generateInitialReports(todayStr, INITIAL_STUDENTS, INITIAL_CLASSES);
+    this.syncClassesStudentCounts(INITIAL_STUDENTS);
+    const initialReports = generateInitialReports(todayStr, INITIAL_STUDENTS, this.getClasses());
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(initialReports));
     localStorage.removeItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(INITIAL_AUDIT_LOGS));
-    this.addAuditLog('HỆ THỐNG', 'Khôi phục toàn bộ dữ liệu mẫu 20 lớp chuẩn Trường THCS Bản Bo', 'settings');
+    this.addAuditLog('HỆ THỐNG', 'Khôi phục dữ liệu 20 lớp và 781 học sinh chuẩn Trường THCS Bản Bo', 'settings');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
   }
 
   // CLEAR DEMO REPORTS (Section AQ: XÓA DỮ LIỆU DEMO để dùng thật)
@@ -1056,11 +1096,12 @@ class StorageService {
         }
       }
 
-      // Loại bỏ hoàn toàn học sinh demo
+      // Loại bỏ hoàn toàn mọi học sinh demo giả lập
       const filtered = list.filter(s => {
         if (!s) return false;
-        if (s.isDemo) return false;
-        if (s.id && /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id)) return false;
+        if (s.isDemo === true) return false;
+        if (s.source === 'DEMO') return false;
+        if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
         return true;
       });
 
@@ -1083,6 +1124,7 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
     localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
+    supabaseService.saveStudentsBatchToSupabase(students).catch(() => {});
   }
 
   /**
@@ -1122,6 +1164,7 @@ class StorageService {
     );
 
     try {
+      supabaseService.deleteAllStudentsFromSupabase().catch(() => {});
       supabaseService.pushAllToSupabase().catch(() => {});
     } catch {
       // ignore
@@ -1167,6 +1210,20 @@ class StorageService {
       'student',
       'KHÔI PHỤC HỌC SINH'
     );
+
+    try {
+      supabaseService.saveStudentsBatchToSupabase(INITIAL_STUDENTS).catch(() => {});
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
+
     return { success: true, count: INITIAL_STUDENTS.length };
   }
 
@@ -1176,12 +1233,23 @@ class StorageService {
    */
   public clearAllDemoStudents(currentUserName: string = 'Phạm Ngọc Thúy') {
     const prev = this.getStudents();
-    const realStudents = prev.filter(s => s.source === 'EXCEL_IMPORT' && !s.isDemo && !(s.id && /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id)));
+    let realStudents = prev.filter(s => {
+      if (!s) return false;
+      if (s.isDemo === true) return false;
+      if (s.source === 'DEMO') return false;
+      if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+      return true;
+    });
+
+    if (realStudents.length === 0 && INITIAL_STUDENTS.length > 0) {
+      realStudents = INITIAL_STUDENTS;
+    }
+
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_demo_cleared', 'true');
-    localStorage.setItem('thcs_banbo_all_students_deleted_by_user', realStudents.length === 0 ? 'true' : 'false');
-    localStorage.setItem('thcs_banbo_dataset_status', realStudents.length > 0 ? 'ACTIVE_DATASET' : 'NO_DATA');
+    localStorage.setItem('thcs_banbo_all_students_deleted_by_user', 'false');
+    localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
 
     // Đồng bộ lại số lượng học sinh trong 20 lớp chính thức
     const classes = this.getClasses();
@@ -1236,6 +1304,30 @@ class StorageService {
     );
   }
 
+  public syncClassesStudentCounts(studentsList?: Student[]) {
+    const students = studentsList || this.getStudents();
+    const classes = this.getClasses();
+    const updatedClasses = classes.map(c => {
+      const clsStudents = students.filter(
+        s => (s.className === c.name || s.classId === c.id) && s.status === 'active'
+      );
+      return {
+        ...c,
+        totalStudents: clsStudents.length,
+        maleCount: clsStudents.filter(s => s.gender === 'male').length,
+        femaleCount: clsStudents.filter(s => s.gender === 'female').length,
+        boardingCount: clsStudents.filter(s => s.boardingType === 'BOARDING').length,
+        nonBoardingCount: clsStudents.filter(s => s.boardingType !== 'BOARDING').length,
+        dayCount: clsStudents.filter(s => s.boardingType !== 'BOARDING').length,
+      };
+    });
+    localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
+    localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+    }
+  }
+
   public saveStudent(student: Student) {
     const students = this.getStudents();
     const idx = students.findIndex(s => s.id === student.id);
@@ -1249,8 +1341,14 @@ class StorageService {
     } else {
       students.push(normalized);
     }
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+    this.syncClassesStudentCounts(students);
+    supabaseService.saveStudentToSupabase(normalized).catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
   }
 
   // Update Boarding Type (Only Admin/TPT permitted)
@@ -1264,8 +1362,11 @@ class StorageService {
 
     target.boardingType = newType;
     target.studentType = newType === 'BOARDING' ? 'boarding' : 'day';
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+    this.syncClassesStudentCounts(students);
+    supabaseService.saveStudentToSupabase(target).catch(() => {});
 
     this.addAuditLog(
       updatedBy,
@@ -1274,6 +1375,9 @@ class StorageService {
       'ĐỔI LOẠI BÁN TRÚ',
       'admin_tpt'
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
     return true;
   }
 
@@ -1290,13 +1394,25 @@ class StorageService {
       map.set(s.id, normalized);
     });
     const merged = Array.from(map.values());
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(merged));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(merged));
+    this.syncClassesStudentCounts(merged);
+    supabaseService.saveStudentsBatchToSupabase(newStudents).catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
   }
 
   public deleteStudent(studentId: string) {
     const students = this.getStudents().filter(s => s.id !== studentId);
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+    localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+    this.syncClassesStudentCounts(students);
+    supabaseService.deleteStudentFromSupabase(studentId).catch(() => {});
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+    }
   }
 
   // ATTENDANCE REPORTS

@@ -170,11 +170,23 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
   // If teacher has NO assigned class (Mục II)
   const isTeacherWithoutClass = isTeacher && !resolvedTeacherClass && !currentUser?.assignedClassId;
 
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(v => v + 1);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+    };
+  }, []);
+
   // Students in class (Only active students)
   const studentsInClass: Student[] = useMemo(() => {
     if (!selectedClassId) return [];
     return storageService.getStudentsByClass(selectedClassId).filter(s => s.status === 'active' || !s.status);
-  }, [selectedClassId]);
+  }, [selectedClassId, refreshTick]);
 
   // Main UI Step states:
   // 'initial' | 'mode_selector' | 'has_absent_list' | 'confirm_full' | 'review_report' | 'submission_success'
@@ -284,7 +296,7 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
         setCurrentStep('mode_selector');
       }
     }
-  }, [selectedClassId, reportDate, selectedSession]);
+  }, [selectedClassId, reportDate, selectedSession, refreshTick]);
 
   // Centralized calculations (Mục LII: calculateAttendanceSummary)
   const summary: AttendanceSummaryCalculation = useMemo(() => {

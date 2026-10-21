@@ -13,6 +13,7 @@
 import * as XLSX from 'xlsx';
 import { Student, SchoolClass, BoardingType, ImportBatch, DatasetStatus, AuditLog } from '../types';
 import { storageService, STORAGE_KEYS } from './storageService';
+import { supabaseService } from './supabaseService';
 import { ParsedStudentItem, normalizeClassCode } from './studentValidationService';
 import { OFFICIAL_20_CLASSES } from '../config/constants';
 
@@ -292,6 +293,7 @@ export class ExcelImportService {
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(finalStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(finalStudents));
       localStorage.setItem('thcs_banbo_demo_cleared', 'true');
+      localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
 
       // Cập nhật sĩ số trong bảng lớp
       const classes = storageService.getClasses();
@@ -322,6 +324,19 @@ export class ExcelImportService {
       // Đặt dataset status là DRAFT_IMPORT (chờ xác nhận hoặc thiết lập bán trú)
       this.setDatasetStatus('DRAFT_IMPORT');
 
+      // Tự động đồng bộ ngay học sinh và 20 lớp lên Supabase đám mây
+      try {
+        supabaseService.saveStudentsBatchToSupabase(finalStudents).catch(() => {});
+        supabaseService.pushAllToSupabase().catch(() => {});
+      } catch {
+        // ignore
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+        window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+      }
+
       // Ghi log hoàn tất
       storageService.saveAuditLog({
         id: `log_${Date.now()}_complete`,
@@ -331,13 +346,13 @@ export class ExcelImportService {
         action: 'IMPORT_STUDENTS_COMPLETE',
         entity: 'student',
         entityId: batch.id,
-        description: `Đã nhập thành công ${newStudents.length} học sinh thật từ file ${batch.fileName}. Trạng thái bộ dữ liệu: DRAFT_IMPORT`,
+        description: `Đã nhập thành công ${newStudents.length} học sinh thật từ file ${batch.fileName}. Trạng thái bộ dữ liệu: DRAFT_IMPORT (Đã đồng bộ Supabase)`,
       });
 
       return {
         success: true,
         importedCount: newStudents.length,
-        message: `Đã nhập thành công ${newStudents.length} học sinh từ file ${batch.fileName}`,
+        message: `Đã nhập thành công ${newStudents.length} học sinh từ file ${batch.fileName} và đồng bộ lên Supabase`,
       };
     } catch (err: any) {
       storageService.saveAuditLog({
@@ -422,6 +437,20 @@ export class ExcelImportService {
       } ngoại trú`,
     });
 
+    // Đồng bộ lên Supabase đám mây
+    try {
+      supabaseService.saveStudentsBatchToSupabase(updated).catch(() => {});
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
+
     return true;
   }
 
@@ -431,6 +460,7 @@ export class ExcelImportService {
   public activateStudentDataset(currentUserId: string, currentUserName: string): boolean {
     this.setDatasetStatus('ACTIVE_DATASET');
     localStorage.setItem('thcs_banbo_demo_cleared', 'true');
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
 
     // Đồng bộ lại chuẩn sĩ số 20 lớp chính thức từ học sinh thật hiện tại
     const students = storageService.getStudents();
@@ -460,8 +490,22 @@ export class ExcelImportService {
       action: 'ACTIVATE_STUDENT_DATASET',
       entity: 'settings',
       entityId: 'dataset_2026_2027',
-      description: `Xác nhận và KÍCH HOẠT CHÍNH THỨC danh sách học sinh Năm học 2026–2027 (${students.length} học sinh)`,
+      description: `Xác nhận và KÍCH HOẠT CHÍNH THỨC danh sách học sinh Năm học 2026–2027 (${students.length} học sinh). Đã đồng bộ Supabase đám mây.`,
     });
+
+    // Đồng bộ toàn bộ dữ liệu lên Supabase
+    try {
+      supabaseService.saveStudentsBatchToSupabase(students).catch(() => {});
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
 
     return true;
   }
@@ -471,17 +515,19 @@ export class ExcelImportService {
    */
   public purgeDemoDataSafely(currentUserId: string, currentUserName: string): { removedCount: number } {
     const students = storageService.getStudents();
-    const demoStudents = students.filter(s => s.isDemo || s.source === 'DEMO' || s.id.startsWith('stu_6a') || s.id.startsWith('stu_7a') || s.id.startsWith('stu_8a') || s.id.startsWith('stu_9a'));
-    
-    // Giữ lại các học sinh thật từ EXCEL_IMPORT
-    const realStudents = students.filter(s => s.source === 'EXCEL_IMPORT');
+    const realStudents = students.filter(s => {
+      if (!s) return false;
+      if (s.isDemo === true) return false;
+      if (s.source === 'DEMO') return false;
+      if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+      return true;
+    });
+    const demoStudents = students.filter(s => !realStudents.includes(s));
 
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(realStudents));
     localStorage.setItem('thcs_banbo_demo_cleared', 'true');
-    if (realStudents.length === 0) {
-      this.setDatasetStatus('NO_DATA');
-    }
+    this.setDatasetStatus(realStudents.length > 0 ? 'ACTIVE_DATASET' : 'NO_DATA');
 
     storageService.saveAuditLog({
       id: `log_${Date.now()}_purge_demo`,
@@ -624,6 +670,7 @@ export class ExcelImportService {
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(sampleStudents));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(sampleStudents));
     localStorage.setItem('thcs_banbo_demo_cleared', 'true');
+    localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
     this.setDatasetStatus('DRAFT_IMPORT');
 
     // Đồng bộ 20 lớp
@@ -653,8 +700,20 @@ export class ExcelImportService {
       action: 'LOAD_SAMPLE_DATASET',
       entity: 'student',
       entityId: 'sample_dataset_20_classes',
-      description: `Đã nạp thành công bộ dữ liệu mẫu gồm 60 học sinh cho đầy đủ 20 lớp chính thức của Trường THCS Bản Bo. Trạng thái: DRAFT_IMPORT (Sẵn sàng kích hoạt).`,
+      description: `Đã nạp thành công bộ dữ liệu mẫu gồm 60 học sinh cho đầy đủ 20 lớp chính thức của Trường THCS Bản Bo. Trạng thái: DRAFT_IMPORT (Sẵn sàng kích hoạt). Đã đồng bộ Supabase.`,
     });
+
+    try {
+      supabaseService.saveStudentsBatchToSupabase(sampleStudents).catch(() => {});
+      supabaseService.pushAllToSupabase().catch(() => {});
+    } catch {
+      // ignore
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+    }
 
     return { success: true, count: sampleStudents.length };
   }

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { storageService } from '../services/storageService';
 import { attendanceService } from '../services/attendanceService';
 import { exportService } from '../services/exportService';
@@ -25,14 +25,30 @@ export const BoardingPage: React.FC<BoardingPageProps> = ({
   const [selectedGrade, setSelectedGrade] = useState<number>(0);
   const [selectedClassId, setSelectedClassId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [refreshTick, setRefreshTick] = useState<number>(0);
 
-  const stats = attendanceService.getDashboardStats(currentDate);
-  const { grades } = attendanceService.getGradeSummaries(currentDate);
-  const classes = storageService.getClasses().filter(c => c.isActive);
-  const students = storageService.getStudents().filter(s => s.status === 'active' && s.boardingType === 'BOARDING');
-  const reports = storageService.getReportsByDate(currentDate);
-  const reportMap = new Map();
-  reports.forEach(r => reportMap.set(r.classId, r));
+  useEffect(() => {
+    const handleUpdate = () => setRefreshTick(v => v + 1);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+    return () => {
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+    };
+  }, []);
+
+  const stats = useMemo(() => attendanceService.getDashboardStats(currentDate), [currentDate, refreshTick]);
+  const { grades } = useMemo(() => attendanceService.getGradeSummaries(currentDate), [currentDate, refreshTick]);
+  const classes = useMemo(() => storageService.getClasses().filter(c => c.isActive), [refreshTick]);
+  const students = useMemo(() => storageService.getStudents().filter(s => s.status === 'active' && s.boardingType === 'BOARDING'), [refreshTick]);
+  const reports = useMemo(() => storageService.getReportsByDate(currentDate), [currentDate, refreshTick]);
+  const reportMap = useMemo(() => {
+    const map = new Map();
+    reports.forEach(r => map.set(r.classId, r));
+    return map;
+  }, [reports]);
 
   // Absent boarding students (Section AE)
   const absentBoardingStudents = useMemo(() => {

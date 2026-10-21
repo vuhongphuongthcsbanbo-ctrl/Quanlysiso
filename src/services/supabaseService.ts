@@ -350,7 +350,7 @@ class SupabaseService {
             id: s.id,
             code: s.code || s.studentCode || '',
             full_name: s.fullName,
-            normalized_name: s.normalizedName || '',
+            normalized_name: s.normalizedName || s.fullName || '',
             date_of_birth: s.dateOfBirth || '',
             gender: s.gender || 'UNSET',
             class_id: s.classId,
@@ -368,8 +368,6 @@ class SupabaseService {
           const { error: stuError } = await supabase.from('students').upsert(rows, { onConflict: 'id' });
           if (stuError) throw new Error(`Lỗi đồng bộ học sinh: ${stuError.message}`);
         }
-      } else {
-        await supabase.from('students').delete().neq('id', 'keep_none');
       }
 
       // 3. Đồng bộ Báo cáo điểm danh
@@ -543,12 +541,100 @@ class SupabaseService {
         }
       }
 
-      // 2. Lấy học sinh
-      const { data: stuData, error: stuErr } = await supabase.from('students').select('raw_data');
+      // 2. Lấy danh sách học sinh đầy đủ từ Supabase
+      const { data: stuData, error: stuErr } = await supabase.from('students').select('*');
       if (!stuErr && stuData && stuData.length > 0) {
-        const students = stuData.map(s => s.raw_data).filter(Boolean);
+        const students: Student[] = stuData.map(s => {
+          if (s.raw_data && typeof s.raw_data === 'object' && Object.keys(s.raw_data).length > 0) {
+            return {
+              ...s.raw_data,
+              id: s.id || s.raw_data.id,
+              code: s.code || s.raw_data.code || '',
+              studentCode: s.code || s.raw_data.studentCode || '',
+              fullName: s.full_name || s.raw_data.fullName,
+              normalizedName: s.normalized_name || s.raw_data.normalizedName || s.full_name,
+              dateOfBirth: s.date_of_birth || s.raw_data.dateOfBirth || '',
+              gender: s.gender || s.raw_data.gender || 'UNSET',
+              classId: s.class_id || s.raw_data.classId,
+              className: s.class_name || s.raw_data.className,
+              grade: s.grade || s.raw_data.grade || 6,
+              boardingType: s.boarding_type || s.raw_data.boardingType || 'NON_BOARDING',
+              studentType: (s.boarding_type === 'BOARDING' || s.raw_data.boardingType === 'BOARDING') ? 'boarding' : 'day',
+              status: s.status || s.raw_data.status || 'active',
+              parentName: s.parent_name || s.raw_data.parentName || '',
+              parentPhone: s.parent_phone || s.raw_data.parentPhone || '',
+              address: s.address || s.raw_data.address || '',
+              isDemo: false,
+              source: s.raw_data.source || 'EXCEL_IMPORT',
+            };
+          }
+          return {
+            id: s.id,
+            code: s.code || `HS-${s.class_name}-${s.id}`,
+            studentCode: s.code || `HS-${s.class_name}-${s.id}`,
+            fullName: s.full_name,
+            normalizedName: s.normalized_name || s.full_name,
+            dateOfBirth: s.date_of_birth || '2014-01-01',
+            gender: s.gender || 'UNSET',
+            classId: s.class_id,
+            className: s.class_name,
+            grade: s.grade || 6,
+            boardingType: s.boarding_type || 'NON_BOARDING',
+            studentType: s.boarding_type === 'BOARDING' ? 'boarding' : 'day',
+            parentName: s.parent_name || '',
+            parentPhone: s.parent_phone || '',
+            address: s.address || '',
+            ethnicGroup: s.ethnic_group || 'Thái',
+            status: s.status || 'active',
+            schoolYearId: '2026-2027',
+            source: 'EXCEL_IMPORT',
+            isDemo: false,
+            createdAt: s.created_at || new Date().toISOString(),
+          };
+        }).filter(s => {
+          if (!s) return false;
+          if (s.isDemo === true) return false;
+          if (s.source === 'DEMO') return false;
+          if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+          return true;
+        });
+
         if (students.length > 0) {
           localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+          localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+          localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
+          localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
+
+          // Cập nhật lại số lượng học sinh trong 20 lớp chính thức
+          const rawCls = localStorage.getItem(STORAGE_KEYS.CLASSES);
+          if (rawCls) {
+            try {
+              const currentClasses: any[] = JSON.parse(rawCls);
+              const updatedClasses = currentClasses.map(c => {
+                const clsStudents = students.filter(
+                  stu => (stu.className === c.name || stu.classId === c.id) && stu.status === 'active'
+                );
+                return {
+                  ...c,
+                  totalStudents: clsStudents.length > 0 ? clsStudents.length : c.totalStudents,
+                  boardingCount: clsStudents.filter(stu => stu.boardingType === 'BOARDING').length,
+                  nonBoardingCount: clsStudents.filter(stu => stu.boardingType !== 'BOARDING').length,
+                  dayCount: clsStudents.filter(stu => stu.boardingType !== 'BOARDING').length,
+                  maleCount: clsStudents.filter(stu => stu.gender === 'male').length,
+                  femaleCount: clsStudents.filter(stu => stu.gender === 'female').length,
+                };
+              });
+              localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(updatedClasses));
+              localStorage.setItem('thcs_banbo_classes', JSON.stringify(updatedClasses));
+            } catch {
+              // ignore
+            }
+          }
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+            window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
+          }
         }
       }
 
@@ -683,6 +769,147 @@ class SupabaseService {
   }
 
   /**
+   * Lưu hoặc cập nhật một học sinh lên Supabase ngay lập tức
+   */
+  public async saveStudentToSupabase(student: Student): Promise<boolean> {
+    try {
+      const row = {
+        id: student.id,
+        code: student.code || student.studentCode || '',
+        full_name: student.fullName,
+        normalized_name: student.normalizedName || student.fullName || '',
+        date_of_birth: student.dateOfBirth || '',
+        gender: student.gender || 'UNSET',
+        class_id: student.classId,
+        class_name: student.className,
+        grade: student.grade || 6,
+        boarding_type: student.boardingType || 'NON_BOARDING',
+        parent_name: student.parentName || '',
+        parent_phone: student.parentPhone || '',
+        address: student.address || '',
+        ethnic_group: student.ethnicGroup || '',
+        status: student.status || 'active',
+        raw_data: student,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('students').upsert([row], { onConflict: 'id' });
+      if (error) {
+        console.warn('Lỗi lưu học sinh lên Supabase:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('Lỗi kết nối Supabase khi lưu học sinh:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Lưu danh sách học sinh theo lô lên Supabase
+   */
+  public async saveStudentsBatchToSupabase(students: Student[]): Promise<boolean> {
+    try {
+      if (!students || students.length === 0) return true;
+      const batchSize = 100;
+      for (let i = 0; i < students.length; i += batchSize) {
+        const chunk = students.slice(i, i + batchSize);
+        const rows = chunk.map(s => ({
+          id: s.id,
+          code: s.code || s.studentCode || '',
+          full_name: s.fullName,
+          normalized_name: s.normalizedName || s.fullName || '',
+          date_of_birth: s.dateOfBirth || '',
+          gender: s.gender || 'UNSET',
+          class_id: s.classId,
+          class_name: s.className,
+          grade: s.grade || 6,
+          boarding_type: s.boardingType || 'NON_BOARDING',
+          parent_name: s.parentName || '',
+          parent_phone: s.parentPhone || '',
+          address: s.address || '',
+          ethnic_group: s.ethnicGroup || '',
+          status: s.status || 'active',
+          raw_data: s,
+          updated_at: new Date().toISOString(),
+        }));
+        const { error } = await supabase.from('students').upsert(rows, { onConflict: 'id' });
+        if (error) {
+          console.warn('Lỗi batch học sinh lên Supabase:', error.message);
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      console.warn('Lỗi kết nối Supabase khi batch học sinh:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Xóa một học sinh khỏi Supabase
+   */
+  public async deleteStudentFromSupabase(studentId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('students').delete().eq('id', studentId);
+      if (error) {
+        console.warn('Lỗi xóa học sinh trên Supabase:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('Lỗi kết nối Supabase khi xóa học sinh:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Xóa toàn bộ học sinh trên Supabase (chỉ dùng khi người dùng chủ động bấm Xóa tất cả học sinh)
+   */
+  public async deleteAllStudentsFromSupabase(): Promise<boolean> {
+    try {
+      const { error } = await supabase.from('students').delete().neq('id', 'keep_none');
+      if (error) {
+        console.warn('Lỗi xóa tất cả học sinh trên Supabase:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('Lỗi kết nối Supabase khi xóa tất cả học sinh:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Lưu hoặc cập nhật một lớp học lên Supabase
+   */
+  public async saveClassToSupabase(cls: SchoolClass): Promise<boolean> {
+    try {
+      const row = {
+        id: cls.id,
+        code: cls.code || cls.name,
+        name: cls.name,
+        grade: cls.grade,
+        room: cls.room || '',
+        head_teacher_id: cls.teacherId || null,
+        head_teacher_name: cls.teacherName || '',
+        head_teacher_phone: cls.teacherPhone || '',
+        total_students: cls.totalStudents || 0,
+        male_count: cls.maleCount || 0,
+        female_count: cls.femaleCount || 0,
+        boarding_count: cls.boardingCount || 0,
+        day_count: cls.dayCount || cls.nonBoardingCount || 0,
+        non_boarding_count: cls.nonBoardingCount || 0,
+        raw_data: cls,
+        updated_at: new Date().toISOString(),
+      };
+      const { error } = await supabase.from('classes').upsert([row], { onConflict: 'id' });
+      return !error;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
    * Lưu nhanh một báo cáo sĩ số lên Supabase
    */
   public async saveReportToSupabase(report: AttendanceReport) {
@@ -724,7 +951,7 @@ class SupabaseService {
   public subscribeToRealtimeChanges(onReportChange?: () => void) {
     try {
       const channel = supabase
-        .channel('thcs_banbo_attendance_channel')
+        .channel('thcs_banbo_realtime_sync')
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'attendance_reports' },
@@ -743,6 +970,49 @@ class SupabaseService {
               window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
               if (onReportChange) onReportChange();
             }
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'students' },
+          (payload) => {
+            const raw = localStorage.getItem(STORAGE_KEYS.STUDENTS);
+            let students: Student[] = raw ? JSON.parse(raw) : [];
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const rec = payload.new as any;
+              const studentObj: Student = rec.raw_data || {
+                id: rec.id,
+                code: rec.code,
+                fullName: rec.full_name,
+                normalizedName: rec.normalized_name || rec.full_name,
+                dateOfBirth: rec.date_of_birth,
+                gender: rec.gender,
+                classId: rec.class_id,
+                className: rec.class_name,
+                grade: rec.grade,
+                boardingType: rec.boarding_type,
+                parentName: rec.parent_name,
+                parentPhone: rec.parent_phone,
+                address: rec.address,
+                ethnicGroup: rec.ethnic_group,
+                status: rec.status,
+              };
+              const idx = students.findIndex(s => s.id === studentObj.id);
+              if (idx >= 0) {
+                students[idx] = studentObj;
+              } else {
+                students.push(studentObj);
+              }
+            } else if (payload.eventType === 'DELETE') {
+              const oldId = (payload.old as any)?.id;
+              if (oldId) {
+                students = students.filter(s => s.id !== oldId);
+              }
+            }
+            localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
+            localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
+            window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+            window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
           }
         )
         .subscribe();

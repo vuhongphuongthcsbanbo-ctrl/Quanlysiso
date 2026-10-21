@@ -77,10 +77,14 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
   useEffect(() => {
     const handleUpdate = () => setRefreshTick((prev) => prev + 1);
     window.addEventListener('thcs_banbo_reports_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_students_changed', handleUpdate);
+    window.addEventListener('thcs_banbo_classes_changed', handleUpdate);
     window.addEventListener('thcs_banbo_notification_changed', handleUpdate);
     window.addEventListener('thcs_banbo_settings_changed', handleUpdate);
     return () => {
       window.removeEventListener('thcs_banbo_reports_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_students_changed', handleUpdate);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUpdate);
       window.removeEventListener('thcs_banbo_notification_changed', handleUpdate);
       window.removeEventListener('thcs_banbo_settings_changed', handleUpdate);
     };

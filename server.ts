@@ -152,6 +152,18 @@ async function startServer() {
       appType: 'spa',
     });
     app.use(vite.middlewares);
+    // Fallback cho SPA trong môi trường dev nếu vite.middlewares không chặn
+    app.use('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        const fs = await import('fs');
+        let template = fs.readFileSync(path.resolve(__dirname, 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        next(e);
+      }
+    });
   } else {
     app.use(express.static(path.resolve(__dirname, 'dist')));
     app.get('*', (req, res) => {
@@ -159,10 +171,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`[THCS Bản Bo] Server đang chạy tại http://0.0.0.0:${PORT}`);
     console.log(`[THCS Bản Bo] Múi giờ hệ thống: Asia/Ho_Chi_Minh (UTC+7)`);
     console.log(`[THCS Bản Bo] Scheduler ngầm đang kiểm tra định kỳ mỗi 30s.`);
+  });
+
+  server.on('error', (err: any) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[THCS Bản Bo] Port ${PORT} đang được sử dụng.`);
+    } else {
+      console.error('[THCS Bản Bo] Lỗi server:', err);
+    }
   });
 }
 
