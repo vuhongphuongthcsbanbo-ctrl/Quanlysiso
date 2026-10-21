@@ -32,6 +32,7 @@ import {
   Clock,
   UserCheck,
   UserX,
+  ClipboardCheck,
   UtensilsCrossed,
   Users,
   Send,
@@ -1067,9 +1068,212 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
           </div>
 
           {/* ==================================================
-              MỤC XXI: THANH TÓM TẮT CỐ ĐỊNH Ở CUỐI MOBILE (STICKY BOTTOM SUMMARY)
-              Sĩ số: 38 | Có mặt: 36 | Vắng: 2 | Bán trú có mặt: 30
-              Nút: “XEM & GỬI BÁO CÁO”
+              PHẦN XÁC NHẬN VÀ GỬI BÁO CÁO KHI CÓ HỌC SINH VẮNG
+              (Chuẩn hóa giao diện giống hệt Báo cáo Lớp đủ sĩ số)
+          ================================================== */}
+          <div id="absent-report-confirmation-section" className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm space-y-4 pt-5 mt-4">
+            <div className="text-center border-b border-slate-100 pb-3">
+              <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto mb-2 shadow-xs">
+                <ClipboardCheck className="w-7 h-7 text-emerald-600" />
+              </div>
+              <h2 className="text-base font-black text-slate-900 uppercase">
+                XÁC NHẬN SĨ SỐ {getSessionDisplayName(selectedSession).toUpperCase()} – LỚP {currentClass.name}
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Thầy/cô kiểm tra tổng hợp số liệu và danh sách vắng bên dưới trước khi gửi cho Tổng Phụ trách Đội.
+              </p>
+            </div>
+
+            {/* Bảng số liệu tổng hợp */}
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-slate-600 font-medium">Sĩ số lớp:</span>
+                <strong className="text-slate-900 font-mono text-sm">{summary.totalStudents}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-emerald-700 font-bold">Có mặt:</span>
+                <strong className="text-emerald-800 font-mono text-sm">{summary.presentCount}</strong>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-rose-700 font-bold">Vắng:</span>
+                <strong className="text-rose-800 font-mono text-sm">
+                  {summary.absentCount}
+                  {summary.absentCount > 0 ? ` (Có phép: ${summary.excusedAbsentCount}, K.phép: ${summary.unexcusedAbsentCount})` : ''}
+                </strong>
+              </div>
+              {summary.lateCount > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-purple-700 font-bold">Đi muộn:</span>
+                  <strong className="text-purple-800 font-mono text-sm">{summary.lateCount}</strong>
+                </div>
+              )}
+              {summary.earlyLeaveCount > 0 && (
+                <div className="flex justify-between py-1 border-b border-slate-200">
+                  <span className="text-indigo-700 font-bold">Về sớm:</span>
+                  <strong className="text-indigo-800 font-mono text-sm">{summary.earlyLeaveCount}</strong>
+                </div>
+              )}
+              <div className="flex justify-between py-1 border-b border-slate-200">
+                <span className="text-amber-800">Bán trú có mặt:</span>
+                <strong className="text-amber-900 font-mono">
+                  {summary.boardingPresent}/{summary.boardingTotal} có mặt
+                  {summary.boardingAbsent > 0 ? ` (${summary.boardingAbsent} vắng)` : ''}
+                </strong>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-blue-800">Ngoại trú có mặt:</span>
+                <strong className="text-blue-900 font-mono">
+                  {summary.nonBoardingPresent}/{summary.nonBoardingTotal} có mặt
+                  {summary.nonBoardingAbsent > 0 ? ` (${summary.nonBoardingAbsent} vắng)` : ''}
+                </strong>
+              </div>
+            </div>
+
+            {/* Tóm tắt danh sách học sinh vắng đã ghi nhận */}
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-bold text-slate-700 uppercase flex items-center justify-between">
+                <span>Danh sách học sinh vắng / thay đổi ({absentStudentsList.length}):</span>
+                {absentStudentsList.length > 0 && (
+                  <span className="text-[10px] text-slate-400 font-normal">Chạm tên phía trên nếu cần sửa</span>
+                )}
+              </div>
+
+              {absentStudentsList.length === 0 ? (
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-amber-900 text-xs flex items-center justify-between">
+                  <span>Chưa có học sinh nào được đánh dấu vắng.</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="text-[11px] text-amber-800 font-bold underline cursor-pointer"
+                  >
+                    Lên danh sách ↑
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {absentStudentsList.map((stu) => (
+                    <div
+                      key={stu.studentId}
+                      className="p-2.5 bg-rose-50/70 rounded-xl border border-rose-200 text-xs flex items-center justify-between"
+                    >
+                      <div>
+                        <div className="font-black text-slate-900">{stu.studentName}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          <span className="font-semibold text-slate-700">
+                            {stu.boardingType === 'BOARDING' ? 'Bán trú' : 'Ngoại trú'}
+                          </span>
+                          <span> · </span>
+                          <span className="text-rose-800 font-bold">
+                            {stu.status === 'ABSENT_EXCUSED'
+                              ? 'Vắng có phép'
+                              : stu.status === 'ABSENT_UNEXCUSED'
+                              ? 'Vắng không phép'
+                              : stu.status === 'LATE'
+                              ? 'Đi muộn'
+                              : 'Về sớm'}
+                          </span>
+                          {stu.reason && <span> · Lí do: {stu.reason}</span>}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const originalStu = studentsInClass.find(s => s.id === stu.studentId);
+                          if (originalStu) handleOpenEditStudent(originalStu);
+                        }}
+                        className="text-[10px] text-blue-600 font-bold hover:underline shrink-0 px-2.5 py-1 bg-white border border-slate-200 rounded-lg cursor-pointer"
+                      >
+                        Sửa
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Ghi chú thêm cho Tổng phụ trách (không bắt buộc) */}
+            <div>
+              <label className="text-[11px] font-bold text-slate-600 block mb-1">
+                Ghi chú thêm cho Tổng phụ trách (nếu có):
+              </label>
+              <textarea
+                rows={2}
+                value={reportNotes}
+                onChange={(e) => setReportNotes(e.target.value)}
+                placeholder="VD: Học sinh Lò Văn C bị ốm phụ huynh đã gọi điện xin phép..."
+                className="w-full text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-hidden focus:border-blue-500"
+              />
+            </div>
+
+            {/* Checkbox bắt buộc: Tôi đã kiểm tra và xác nhận số liệu trên */}
+            <div className="bg-emerald-50/80 p-3 rounded-xl border border-emerald-200">
+              <label className="flex items-start gap-2.5 cursor-pointer text-xs text-emerald-950 font-semibold select-none">
+                <input
+                  type="checkbox"
+                  checked={isConfirmedByTeacher}
+                  onChange={(e) => setIsConfirmedByTeacher(e.target.checked)}
+                  className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                />
+                <span>Tôi đã kiểm tra và xác nhận số liệu trên.</span>
+              </label>
+            </div>
+
+            {validationError && (
+              <div className="p-3 bg-rose-50 text-rose-800 text-xs rounded-xl border border-rose-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{validationError}</span>
+              </div>
+            )}
+
+            {/* 2 Nút: QUAY LẠI, GỬI TỔNG PHỤ TRÁCH (Giống hệt báo cáo học sinh đủ) */}
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setCurrentStep('mode_selector')}
+                className="w-1/3 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs cursor-pointer text-center"
+              >
+                QUAY LẠI
+              </button>
+
+              <button
+                type="button"
+                disabled={!isConfirmedByTeacher || isSubmitting}
+                onClick={handleSubmitAttendanceReport}
+                className="w-2/3 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+                title="Xác nhận và gửi báo cáo cho Tổng Phụ trách Đội"
+              >
+                {isSubmitting ? (
+                  <span>ĐANG GỬI...</span>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>GỬI TỔNG PHỤ TRÁCH</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Nút tùy chọn xem lại chi tiết trước khi gửi */}
+            <div className="text-center pt-1 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setValidationError(null);
+                  setCurrentStep('review_report');
+                }}
+                className="text-[11px] text-blue-700 font-bold hover:underline inline-flex items-center gap-1 cursor-pointer"
+              >
+                <span>Xem bản kiểm tra toàn diện trước khi gửi</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* ==================================================
+              THANH TÓM TẮT CỐ ĐỊNH Ở CUỐI MOBILE (STICKY BOTTOM SUMMARY)
+              Nút: “XÁC NHẬN & GỬI BÁO CÁO”
           ================================================== */}
           <div className="fixed bottom-0 left-0 right-0 z-40 bg-slate-900 text-white px-3 py-2.5 shadow-xl border-t border-slate-800 safe-area-bottom">
             <div className="max-w-lg mx-auto flex items-center justify-between gap-2">
@@ -1086,17 +1290,21 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setIsConfirmedByTeacher(false);
-                  setValidationError(null);
-                  setCurrentStep('review_report');
-                }}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer transition-colors whitespace-nowrap"
-              >
-                XEM & GỬI BÁO CÁO
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('absent-report-confirmation-section');
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth' });
+                    }
+                  }}
+                  className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-600 active:scale-95 text-slate-950 font-black text-xs rounded-xl shadow-md cursor-pointer transition-all whitespace-nowrap flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5 text-slate-950" />
+                  <span>XÁC NHẬN & GỬI</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1231,7 +1439,7 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
                 onChange={(e) => setIsConfirmedByTeacher(e.target.checked)}
                 className="mt-0.5 rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
               />
-              <span>Tôi xác nhận số liệu sĩ số lớp là chính xác.</span>
+              <span>Tôi đã kiểm tra và xác nhận số liệu trên.</span>
             </label>
           </div>
 
@@ -1257,13 +1465,14 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
               disabled={!isConfirmedByTeacher || isSubmitting}
               onClick={handleSubmitAttendanceReport}
               className="w-2/3 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md cursor-pointer transition-all"
+              title="Xác nhận và gửi báo cáo cho Tổng Phụ trách Đội"
             >
               {isSubmitting ? (
                 <span>ĐANG GỬI...</span>
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>XÁC NHẬN BÁO CÁO {getSessionDisplayName(selectedSession).toUpperCase()}</span>
+                  <span>GỬI TỔNG PHỤ TRÁCH</span>
                 </>
               )}
             </button>
