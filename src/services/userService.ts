@@ -461,8 +461,16 @@ export class UserService {
     const teacher = teachers.find(
       t =>
         t.id === teacherOrUserId ||
-        (user && (t.id === user.teacherId || (t.email && t.email.toLowerCase() === user.email.toLowerCase())))
+        (user && (t.id === user.teacherId || (t.email && t.email.toLowerCase() === user.email.toLowerCase()) || (user.assignedClassName && t.assignedClassName && user.assignedClassName.toUpperCase() === t.assignedClassName.toUpperCase())))
     );
+
+    if (!user && teacher) {
+      user = users.find(
+        u => (teacher.id && u.teacherId === teacher.id) ||
+             (teacher.email && u.email.toLowerCase() === teacher.email.toLowerCase()) ||
+             (teacher.assignedClassName && u.assignedClassName && u.assignedClassName.toUpperCase() === teacher.assignedClassName.toUpperCase())
+      );
+    }
 
     if (!user && teacher) {
       const res = await this.createUserAccount(teacher.id, performedById, performedByName);

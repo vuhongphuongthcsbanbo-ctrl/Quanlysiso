@@ -118,7 +118,9 @@ export const UserManagementPage: React.FC = () => {
     return teachers.map(tch => {
       const cleanEmail = tch.email.trim().toLowerCase();
       const matchedUser = users.find(
-        u => (tch.id && u.teacherId === tch.id) || (u.email && u.email.toLowerCase() === cleanEmail)
+        u => (tch.id && u.teacherId === tch.id) ||
+             (u.email && u.email.toLowerCase() === cleanEmail) ||
+             (tch.assignedClassName && u.assignedClassName && tch.assignedClassName.trim().toUpperCase() === u.assignedClassName.trim().toUpperCase())
       );
       const isAccountActive = matchedUser ? matchedUser.isActive && matchedUser.accountStatus === 'ACTIVE' : tch.accountStatus === 'ACTIVE';
       const isAccountLocked = matchedUser ? matchedUser.accountStatus === 'LOCKED' || !matchedUser.isActive : tch.accountStatus === 'LOCKED';

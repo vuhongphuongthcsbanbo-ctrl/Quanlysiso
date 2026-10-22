@@ -186,10 +186,10 @@ class StorageService {
         });
       }
 
-      // Đảm bảo bộ 3 tài khoản Quản trị & BGH chính thức luôn có mặt trong usersList
+      // Đảm bảo bộ 3 tài khoản Quản trị & BGH chính thức và toàn bộ 20 GVCN luôn có mặt và được kích hoạt (ACTIVE)
       for (const initUser of INITIAL_USERS) {
         const existing = usersList.find(
-          u => u.id === initUser.id || (u.email && u.email.toLowerCase() === initUser.email.toLowerCase())
+          u => u.id === initUser.id || (u.email && u.email.toLowerCase() === initUser.email.toLowerCase()) || (initUser.assignedClassName && u.assignedClassName && u.assignedClassName.toUpperCase() === initUser.assignedClassName.toUpperCase())
         );
         if (!existing) {
           usersList.push({ ...initUser });
@@ -200,6 +200,12 @@ class StorageService {
           existing.role = initUser.role;
           existing.accountStatus = 'ACTIVE';
           existing.isActive = true;
+          existing.assignedClassId = initUser.assignedClassId || existing.assignedClassId;
+          existing.assignedClassName = initUser.assignedClassName || existing.assignedClassName;
+          existing.teacherId = initUser.teacherId || existing.teacherId;
+          if (!existing.username) existing.username = initUser.username;
+          if (!existing.phone) existing.phone = initUser.phone;
+          if (!existing.password) existing.password = initUser.password || '12345678';
         }
       }
 
@@ -218,8 +224,20 @@ class StorageService {
         bghTch.accountStatus = 'ACTIVE';
       }
       for (const ot of OFFICIAL_TEACHERS) {
-        if (!tList.some((t: any) => t.id === ot.id || (t.email && ot.email && t.email.toLowerCase() === ot.email.toLowerCase()))) {
-          tList.push(ot);
+        const existingT = tList.find((t: any) => t.id === ot.id || (t.email && ot.email && t.email.toLowerCase() === ot.email.toLowerCase()) || (t.assignedClassName && ot.assignedClassName && t.assignedClassName.toUpperCase() === ot.assignedClassName.toUpperCase()));
+        if (!existingT) {
+          tList.push({ ...ot, accountStatus: 'ACTIVE', employmentStatus: 'ACTIVE' });
+        } else {
+          existingT.fullName = ot.fullName;
+          existingT.email = ot.email;
+          existingT.phone = ot.phone;
+          existingT.role = ot.role;
+          existingT.assignedClassId = ot.assignedClassId;
+          existingT.assignedClassName = ot.assignedClassName;
+          existingT.employmentStatus = 'ACTIVE';
+          existingT.accountStatus = 'ACTIVE';
+          existingT.teacherCode = ot.teacherCode;
+          existingT.authUid = existingT.authUid || `auth_${ot.id}`;
         }
       }
       localStorage.setItem(STORAGE_KEYS.TEACHERS, JSON.stringify(tList));

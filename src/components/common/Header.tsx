@@ -39,16 +39,30 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { currentUser, switchUser, logout, isAdmin, isTeacher } = useAuth();
   const settings = storageService.getSettings();
-  const allUsers = storageService.getUsers();
+  const [allUsers, setAllUsers] = useState<User[]>(() => storageService.getUsers());
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
   const [showPWAInstallModal, setShowPWAInstallModal] = useState(false);
   const [isTrainingActive, setIsTrainingActive] = useState<boolean>(() => trainingService.isTrainingMode());
 
+  useEffect(() => {
+    const handleUsersChange = () => {
+      setAllUsers(storageService.getUsers());
+    };
+    window.addEventListener('thcs_banbo_users_changed', handleUsersChange);
+    window.addEventListener('thcs_banbo_classes_changed', handleUsersChange);
+    return () => {
+      window.removeEventListener('thcs_banbo_users_changed', handleUsersChange);
+      window.removeEventListener('thcs_banbo_classes_changed', handleUsersChange);
+    };
+  }, []);
+
   // Lọc danh sách người dùng cho nút "Đổi vai trò":
   // Xóa bỏ hoàn toàn thầy Hoàng Xuân Nhật với vai trò giáo viên (thầy chỉ có duy nhất vai trò Hiệu trưởng - Ban Giám Hiệu)
+  // Đảm bảo có đầy đủ cả 20 GVCN, bao gồm cả cô Nguyễn Thị Thu (GVCN 7A4) và cô Nguyễn Thị Thu (GVCN 7A5)
   const roleSwitcherUsers = useMemo(() => {
     const filtered = allUsers.filter((u) => {
+      if (!u.isActive || u.accountStatus === 'LOCKED') return false;
       const isNhat = (u.name || '').includes('Hoàng Xuân Nhật') || (u.fullName || '').includes('Hoàng Xuân Nhật');
       if (isNhat) {
         const r = u.role as string;
@@ -69,13 +83,46 @@ export const Header: React.FC<HeaderProps> = ({
       return true;
     });
 
-    const seen = new Set<string>();
-    return filtered.filter((u) => {
-      const key = `${u.name}_${u.role}`;
-      if (seen.has(key) || seen.has(u.id)) return false;
-      seen.add(key);
-      seen.add(u.id);
-      return true;
+    // Lọc trùng theo user ID và lớp phân công: KHÔNG lọc theo `${u.name}_${u.role}` vì GVCN 7A4 và 7A5 cùng mang tên cô Nguyễn Thị Thu
+    const seenIds = new Set<string>();
+    const seenClasses = new Set<string>();
+    const result: User[] = [];
+
+    for (const u of filtered) {
+      if (seenIds.has(u.id)) continue;
+      if (u.assignedClassName) {
+        const clsNorm = u.assignedClassName.trim().toUpperCase();
+        if (seenClasses.has(clsNorm)) continue;
+        seenClasses.add(clsNorm);
+      }
+      seenIds.add(u.id);
+      result.push(u);
+    }
+
+    // Thứ tự phân cấp trực quan:
+    // 1. Quản trị viên (Vũ Hồng Phương)
+    // 2. Tổng Phụ trách Đội (Phạm Ngọc Thúy)
+    // 3. Hiệu trưởng (Hoàng Xuân Nhật)
+    // 4. Toàn bộ 20 GVCN theo thứ tự chuẩn từ 6A1 đến 9A5
+    const classOrder = [
+      '6A1', '6A2', '6A3', '6A4', '6A5',
+      '7A1', '7A2', '7A3', '7A4', '7A5',
+      '8A1', '8A2', '8A3', '8A4', '8A5',
+      '9A1', '9A2', '9A3', '9A4', '9A5',
+    ];
+
+    return result.sort((a, b) => {
+      const getPriority = (user: User) => {
+        if (user.id === 'user_vuhongphuong' || (user.email && user.email.includes('vuhongphuong'))) return 1;
+        if (user.id === 'user_tpt' || user.role === 'admin_tpt') return 2;
+        if (user.id === 'user_bgh' || user.role === 'principal' || user.role === 'BOARD_OF_MANAGEMENT') return 3;
+        if (user.assignedClassName) {
+          const idx = classOrder.indexOf(user.assignedClassName.trim().toUpperCase());
+          return idx !== -1 ? 10 + idx : 50;
+        }
+        return 99;
+      };
+      return getPriority(a) - getPriority(b);
     });
   }, [allUsers]);
 
@@ -248,11 +295,16 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
 
             {showRoleSwitcher && (
-              <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
-                <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                  Chuyển vai trò thử nghiệm nhanh:
+              <div className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200 p-2 z-50 animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                    Chuyển vai trò thử nghiệm nhanh:
+                  </span>
+                  <span className="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded-md font-bold">
+                    {roleSwitcherUsers.length} tài khoản
+                  </span>
                 </div>
-                <div className="max-h-72 overflow-y-auto space-y-1 py-1">
+                <div className="max-h-80 overflow-y-auto space-y-1 py-1">
                   {roleSwitcherUsers.map((u) => (
                     <button
                       key={u.id}
@@ -266,13 +318,13 @@ export const Header: React.FC<HeaderProps> = ({
                           : 'hover:bg-slate-50 text-slate-700'
                       }`}
                     >
-                      <div>
-                        <div className="font-bold text-slate-900">{u.name}</div>
-                        <div className="text-[10px] text-slate-500">
+                      <div className="min-w-0 pr-2">
+                        <div className="font-bold text-slate-900 truncate">{u.name}</div>
+                        <div className="text-[10px] text-slate-500 truncate">
                           {u.title} {u.assignedClassName ? `(${u.assignedClassName})` : ''}
                         </div>
                       </div>
-                      {getRoleBadge(u.role, u)}
+                      <div className="shrink-0">{getRoleBadge(u.role, u)}</div>
                     </button>
                   ))}
                 </div>
