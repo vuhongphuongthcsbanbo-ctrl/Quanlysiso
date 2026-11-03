@@ -208,7 +208,7 @@ export class ExcelImportService {
         description: `Bắt đầu nhập ${items.length} học sinh từ file ${batch.fileName}`,
       });
 
-      // Nhận tất cả các học sinh có họ tên hợp lệ (không bỏ sót bất kỳ em nào trong 781 học sinh)
+      // Nhận tất cả các học sinh có họ tên hợp lệ (không bỏ sót bất kỳ em nào trong 778 học sinh)
       const validItemsToImport = items.filter(
         it => it.fullName && it.fullName.trim().length >= 2 && !it.errors?.includes('Bản ghi trùng bị bỏ qua theo chỉ định')
       );

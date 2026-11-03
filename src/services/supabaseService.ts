@@ -2,10 +2,9 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { STORAGE_KEYS } from './storageService';
 import { Student, SchoolClass, AttendanceReport, User, SchoolSettings, AuditLog } from '../types';
 
-// Chuẩn hóa URL (loại bỏ /rest/v1/ hoặc dấu / thừa ở cuối)
-const rawUrl = import.meta.env.VITE_SUPABASE_URL || 'https://mqegeosjfggffvbuclgv.supabase.co';
+const rawUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://mqegeosjfggffvbuclgv.supabase.co';
 export const SUPABASE_URL = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
-export const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_xNZJ80X6ypukLS1tI-uZQQ_Zzq8Qnme';
+export const SUPABASE_ANON_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || 'sb_publishable_xNZJ80X6ypukLS1tI-uZQQ_Zzq8Qnme';
 
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 

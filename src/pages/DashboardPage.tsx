@@ -827,10 +827,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
           <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="text-[11px] font-bold text-slate-500 uppercase">TỔNG HỌC SINH</div>
             <div className="text-2xl font-black text-slate-900 mt-1 font-mono">
-              {stats.confirmedStudents}
+              {stats.totalStudentsRoster || 778}
             </div>
-            <div className="text-[10px] text-slate-400 mt-0.5">
-              DS trường: {stats.totalStudentsRoster}
+            <div className="text-[10px] text-slate-500 mt-0.5">
+              {stats.confirmedStudents > 0
+                ? `Đã duyệt: ${stats.confirmedStudents}/${stats.totalStudentsRoster || 778}`
+                : `DS trường: ${stats.totalStudentsRoster || 778}`}
             </div>
           </div>
 
@@ -1311,7 +1313,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                     </td>
 
                     <td className="py-3 px-3 text-center font-bold text-slate-900">
-                      {rep ? rep.totalStudents : cls.totalStudents || 0}
+                      {cls.totalStudents || (rep ? rep.totalStudents : 0)}
                     </td>
 
                     <td className="py-3 px-3 text-center font-bold text-emerald-700">
@@ -1497,7 +1499,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                   <div className="grid grid-cols-4 gap-1.5 bg-slate-50 p-2 rounded-lg mt-2 text-center text-xs">
                     <div>
                       <div className="text-[10px] text-slate-500">Sĩ số</div>
-                      <div className="font-black text-slate-900">{rep.totalStudents}</div>
+                      <div className="font-black text-slate-900">{cls.totalStudents || rep.totalStudents}</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-emerald-700">Có mặt</div>
@@ -1658,7 +1660,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
                   <span className="text-slate-500">Sĩ số lớp:</span>
                   <div className="text-xl font-black text-slate-900 font-mono mt-0.5">
-                    {selectedReport.totalStudents}
+                    {selectedClass?.totalStudents || selectedReport.totalStudents}
                   </div>
                 </div>
 

@@ -275,18 +275,131 @@ class StorageService {
       return true;
     });
 
-    // Nếu chưa có học sinh và chưa bị người dùng xóa, nạp ngay danh sách 781 học sinh chính thức
-    if ((rawV2 === null || currentStudents.length === 0) && !studentsClearedByUser && INITIAL_STUDENTS.length > 0) {
+    // Chuẩn hóa và đồng bộ danh sách 778 học sinh chính thức Trường THCS Bản Bo
+    const excessStudentIds = new Set([
+      'stu_real_1792586757001_226_u47odx', // Bùi Thị Diệp Thanh (7A1)
+      'stu_real_1792586757001_209_zscz8x', // Lò Diệp Hân (7A1)
+      'stu_real_1792586757011_625_y1av9x', // Bùi Văn Kiệt (9A2)
+    ]);
+
+    currentStudents = currentStudents.filter(s => {
+      if (excessStudentIds.has(s.id)) return false;
+      if (s.className === '7A1' && (s.code === 'HS-7A1-25' || s.studentCode === 'HS-7A1-25' || s.code === 'HS-7A1-08' || s.studentCode === 'HS-7A1-08')) return false;
+      if (s.className === '9A2' && (s.code === 'HS-9A2-11' || s.studentCode === 'HS-9A2-11')) return false;
+      return true;
+    });
+
+    const synced778Students = localStorage.getItem('thcs_banbo_sync_778_official_students_v4') === 'true';
+    if (!synced778Students || (currentStudents.length !== 778 && !studentsClearedByUser && INITIAL_STUDENTS.length === 778)) {
       currentStudents = INITIAL_STUDENTS;
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
+      localStorage.setItem('thcs_banbo_sync_778_official_students_v4', 'true');
     } else {
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
     }
 
-    // Đồng bộ chuẩn sĩ số cho 20 lớp chính thức
+    // Làm sạch và đồng bộ tuyệt đối sĩ số trong toàn bộ báo cáo điểm danh theo danh sách học sinh thật (Ví dụ 7A1 chuẩn 36 HS, 9A2 chuẩn 42 HS)
+    try {
+      const rawReports = localStorage.getItem(STORAGE_KEYS.REPORTS);
+      if (rawReports) {
+        const reps: AttendanceReport[] = JSON.parse(rawReports);
+        let repsChanged = false;
+
+        const studentsByClass = new Map<string, Student[]>();
+        for (const s of currentStudents) {
+          if (s.status !== 'active') continue;
+          const k1 = s.classId?.toLowerCase();
+          const k2 = s.className?.toUpperCase();
+          if (k1) {
+            if (!studentsByClass.has(k1)) studentsByClass.set(k1, []);
+            studentsByClass.get(k1)!.push(s);
+          }
+          if (k2 && k2 !== k1) {
+            if (!studentsByClass.has(k2)) studentsByClass.set(k2, []);
+            studentsByClass.get(k2)!.push(s);
+          }
+        }
+
+        for (const rep of reps) {
+          const clsStudents = studentsByClass.get(rep.classId?.toLowerCase()) ||
+                              studentsByClass.get(rep.className?.toUpperCase()) ||
+                              [];
+          if (clsStudents.length > 0) {
+            const validIds = new Set(clsStudents.map(s => s.id));
+            const validCodes = new Set(clsStudents.map(s => s.studentCode || s.code));
+
+            let records = (rep.records || []).filter(r =>
+              !excessStudentIds.has(r.studentId) &&
+              !['HS-7A1-25', 'HS-7A1-08', 'HS-9A2-11'].includes(r.studentCode || '') &&
+              (validIds.has(r.studentId) || validCodes.has(r.studentCode || ''))
+            );
+
+            if (records.length !== rep.records?.length || rep.totalStudents !== clsStudents.length) {
+              const recStudentIds = new Set(records.map(r => r.studentId));
+              const missingStudents = clsStudents.filter(s => !recStudentIds.has(s.id));
+              for (const ms of missingStudents) {
+                records.push({
+                  id: `rec_${rep.classId}_${ms.id}`,
+                  reportId: rep.id,
+                  studentId: ms.id,
+                  studentName: ms.fullName,
+                  studentCode: ms.code || ms.studentCode || '',
+                  classId: ms.classId,
+                  className: ms.className,
+                  grade: ms.grade,
+                  date: rep.date,
+                  session: rep.session,
+                  boardingType: ms.boardingType,
+                  studentType: ms.boardingType === 'BOARDING' ? 'boarding' : 'day',
+                  status: 'PRESENT',
+                  hasBoardingMeal: ms.boardingType === 'BOARDING',
+                  hasBoardingNap: ms.boardingType === 'BOARDING',
+                  createdAt: rep.createdAt || `${rep.date}T07:15:00`,
+                  updatedAt: rep.updatedAt || `${rep.date}T07:20:00`,
+                });
+              }
+
+              const absentRecords = records.filter(r => r.status === 'ABSENT_EXCUSED' || r.status === 'ABSENT_UNEXCUSED');
+              const excusedAbsentCount = records.filter(r => r.status === 'ABSENT_EXCUSED').length;
+              const unexcusedAbsentCount = records.filter(r => r.status === 'ABSENT_UNEXCUSED').length;
+              const absentCount = absentRecords.length;
+              const bTotal = clsStudents.filter(s => s.boardingType === 'BOARDING').length;
+              const bAbsent = absentRecords.filter(r => r.boardingType === 'BOARDING').length;
+              const nbTotal = clsStudents.length - bTotal;
+              const nbAbsent = absentCount - bAbsent;
+
+              rep.totalStudents = clsStudents.length;
+              rep.records = records;
+              rep.excusedAbsentCount = excusedAbsentCount;
+              rep.unexcusedAbsentCount = unexcusedAbsentCount;
+              rep.absentCount = absentCount;
+              rep.presentCount = Math.max(0, clsStudents.length - absentCount);
+              rep.boardingTotal = bTotal;
+              rep.boardingAbsent = bAbsent;
+              rep.boardingPresent = Math.max(0, bTotal - bAbsent);
+              rep.boardingMealsExpected = Math.max(0, bTotal - bAbsent);
+              rep.nonBoardingTotal = nbTotal;
+              rep.nonBoardingAbsent = nbAbsent;
+              rep.nonBoardingPresent = Math.max(0, nbTotal - nbAbsent);
+              rep.dayTotal = nbTotal;
+              rep.dayAbsent = nbAbsent;
+              rep.dayPresent = Math.max(0, nbTotal - nbAbsent);
+              repsChanged = true;
+            }
+          }
+        }
+        if (repsChanged) {
+          localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reps));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Đồng bộ chuẩn sĩ số cho 20 lớp chính thức (chuẩn 778 học sinh toàn trường)
     if (currentStudents.length > 0) {
       const classes = this.getClasses();
       const updatedClasses = classes.map(c => {
@@ -705,7 +818,7 @@ class StorageService {
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(initialReports));
     localStorage.removeItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(INITIAL_AUDIT_LOGS));
-    this.addAuditLog('HỆ THỐNG', 'Khôi phục dữ liệu 20 lớp và 781 học sinh chuẩn Trường THCS Bản Bo', 'settings');
+    this.addAuditLog('HỆ THỐNG', 'Khôi phục dữ liệu 20 lớp và 778 học sinh chuẩn Trường THCS Bản Bo', 'settings');
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
       window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
@@ -1438,7 +1551,56 @@ class StorageService {
     this.init();
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.REPORTS);
-      return raw ? JSON.parse(raw) : [];
+      const reports: AttendanceReport[] = raw ? JSON.parse(raw) : [];
+      if (reports.length === 0) return [];
+
+      const students = this.getStudents().filter(s => s.status === 'active');
+      if (students.length === 0) return reports;
+
+      const studentsByClass = new Map<string, Student[]>();
+      for (const s of students) {
+        const k1 = s.classId?.toLowerCase();
+        const k2 = s.className?.toUpperCase();
+        if (k1) {
+          if (!studentsByClass.has(k1)) studentsByClass.set(k1, []);
+          studentsByClass.get(k1)!.push(s);
+        }
+        if (k2 && k2 !== k1) {
+          if (!studentsByClass.has(k2)) studentsByClass.set(k2, []);
+          studentsByClass.get(k2)!.push(s);
+        }
+      }
+
+      return reports.map(r => {
+        const clsStudents = studentsByClass.get(r.classId?.toLowerCase()) ||
+                            studentsByClass.get(r.className?.toUpperCase()) ||
+                            [];
+        if (clsStudents.length > 0 && r.totalStudents !== clsStudents.length) {
+          const absentCount = (r.records || []).filter(rec => rec.status === 'ABSENT_EXCUSED' || rec.status === 'ABSENT_UNEXCUSED').length;
+          const bTotal = clsStudents.filter(s => s.boardingType === 'BOARDING').length;
+          const bAbsent = (r.records || []).filter(rec => rec.boardingType === 'BOARDING' && (rec.status === 'ABSENT_EXCUSED' || rec.status === 'ABSENT_UNEXCUSED')).length;
+          const nbTotal = clsStudents.length - bTotal;
+          const nbAbsent = absentCount - bAbsent;
+
+          return {
+            ...r,
+            totalStudents: clsStudents.length,
+            presentCount: Math.max(0, clsStudents.length - absentCount),
+            absentCount,
+            boardingTotal: bTotal,
+            boardingPresent: Math.max(0, bTotal - bAbsent),
+            boardingAbsent: bAbsent,
+            boardingMealsExpected: Math.max(0, bTotal - bAbsent),
+            nonBoardingTotal: nbTotal,
+            nonBoardingPresent: Math.max(0, nbTotal - nbAbsent),
+            nonBoardingAbsent: nbAbsent,
+            dayTotal: nbTotal,
+            dayPresent: Math.max(0, nbTotal - nbAbsent),
+            dayAbsent: nbAbsent,
+          };
+        }
+        return r;
+      });
     } catch {
       return [];
     }

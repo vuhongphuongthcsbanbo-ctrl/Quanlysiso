@@ -155,7 +155,7 @@ class AttendanceService {
         approvedClasses.push(cls);
 
         // ONLY APPROVED OR LOCKED CLASSES CONTRIBUTE TO CONFIRMED FIGURES!
-        confirmedStudents += rep.totalStudents;
+        confirmedStudents += cls.totalStudents || rep.totalStudents;
         presentCount += rep.presentCount;
         absentCount += rep.absentCount;
         absentExcusedCount += rep.excusedAbsentCount ?? rep.absentExcusedCount ?? 0;
@@ -268,7 +268,7 @@ class AttendanceService {
           }
           if (rep.status === 'APPROVED' || rep.status === 'LOCKED' || (rep.status as string) === 'locked') {
             gApproved++;
-            gConfirmed += rep.totalStudents;
+            gConfirmed += cls.totalStudents || rep.totalStudents;
             gPresent += rep.presentCount;
             gAbsent += rep.absentCount;
             gBoardingPresent += rep.boardingPresent;

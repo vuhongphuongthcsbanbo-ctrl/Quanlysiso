@@ -660,7 +660,7 @@ export const INITIAL_CLASSES: SchoolClass[] = [
 ];
 
 export const DEMO_PRESET_STUDENTS: Student[] = [];
-// Danh sách 781 học sinh chính thức của 20 lớp Trường THCS Bản Bo đã được nạp và kích hoạt
+// Danh sách 778 học sinh chính thức của 20 lớp Trường THCS Bản Bo đã được nạp và kích hoạt
 export const INITIAL_STUDENTS: Student[] = OFFICIAL_SCHOOL_STUDENTS;
 
 // Generate initial demo attendance reports for testing all states

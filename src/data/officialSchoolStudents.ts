@@ -1,6 +1,6 @@
-import { Student } from '../types';
+import { Student } from "../types";
 
-// Danh sách 781 học sinh chính thức của 20 lớp Trường THCS Bản Bo đã được nạp và kích hoạt
+// Danh sách 778 học sinh chính thức của 20 lớp Trường THCS Bản Bo đã được nạp và kích hoạt
 export const OFFICIAL_SCHOOL_STUDENTS: Student[] = [
   {
     "id": "stu_real_1792586756998_0_ih3qaq",
@@ -4649,29 +4649,6 @@ export const OFFICIAL_SCHOOL_STUDENTS: Student[] = [
     "createdAt": "2026-10-21T12:46:01.616897+00:00"
   },
   {
-    "id": "stu_real_1792586757001_226_u47odx",
-    "code": "HS-7A1-25",
-    "studentCode": "HS-7A1-25",
-    "fullName": "Bùi Thị Diệp Thanh",
-    "normalizedName": "bui thi diep thanh",
-    "dateOfBirth": "2014-08-30",
-    "gender": "female",
-    "classId": "cls_7a1",
-    "className": "7A1",
-    "grade": 7,
-    "boardingType": "NON_BOARDING",
-    "studentType": "day",
-    "parentName": "",
-    "parentPhone": "",
-    "address": "Ngoại trú",
-    "ethnicGroup": "Mường",
-    "status": "active",
-    "schoolYearId": "2026-2027",
-    "source": "EXCEL_IMPORT",
-    "isDemo": false,
-    "createdAt": "2026-10-21T12:46:02.910712+00:00"
-  },
-  {
     "id": "stu_real_1792586757001_236_el50o9",
     "code": "HS-7A1-35",
     "studentCode": "HS-7A1-35",
@@ -4757,29 +4734,6 @@ export const OFFICIAL_SCHOOL_STUDENTS: Student[] = [
     "parentPhone": "",
     "address": "Ngoại trú",
     "ethnicGroup": "Giáy",
-    "status": "active",
-    "schoolYearId": "2026-2027",
-    "source": "EXCEL_IMPORT",
-    "isDemo": false,
-    "createdAt": "2026-10-21T12:46:02.910712+00:00"
-  },
-  {
-    "id": "stu_real_1792586757001_209_zscz8x",
-    "code": "HS-7A1-08",
-    "studentCode": "HS-7A1-08",
-    "fullName": "Lò Diệp Hân",
-    "normalizedName": "lo diep han",
-    "dateOfBirth": "2014-12-26",
-    "gender": "female",
-    "classId": "cls_7a1",
-    "className": "7A1",
-    "grade": 7,
-    "boardingType": "NON_BOARDING",
-    "studentType": "day",
-    "parentName": "",
-    "parentPhone": "",
-    "address": "Ngoại trú",
-    "ethnicGroup": "Lào",
     "status": "active",
     "schoolYearId": "2026-2027",
     "source": "EXCEL_IMPORT",
@@ -14146,29 +14100,6 @@ export const OFFICIAL_SCHOOL_STUDENTS: Student[] = [
     "source": "EXCEL_IMPORT",
     "isDemo": false,
     "createdAt": "2026-10-21T12:46:12.47391+00:00"
-  },
-  {
-    "id": "stu_real_1792586757011_625_y1av9x",
-    "code": "HS-9A2-11",
-    "studentCode": "HS-9A2-11",
-    "fullName": "Bùi Văn Kiệt",
-    "normalizedName": "bui van kiet",
-    "dateOfBirth": "2012-02-03",
-    "gender": "male",
-    "classId": "cls_9a2",
-    "className": "9A2",
-    "grade": 9,
-    "boardingType": "NON_BOARDING",
-    "studentType": "day",
-    "parentName": "",
-    "parentPhone": "",
-    "address": "Ngoại trú",
-    "ethnicGroup": "Mường",
-    "status": "active",
-    "schoolYearId": "2026-2027",
-    "source": "EXCEL_IMPORT",
-    "isDemo": false,
-    "createdAt": "2026-10-21T12:46:16.237643+00:00"
   },
   {
     "id": "stu_real_1792586757011_618_x6m8aq",
