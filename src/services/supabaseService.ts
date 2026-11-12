@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { STORAGE_KEYS } from './storageService';
+import { STORAGE_KEYS, isBlacklistedStudent } from './storageService';
 import { Student, SchoolClass, AttendanceReport, User, SchoolSettings, AuditLog } from '../types';
 
 const rawUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://mqegeosjfggffvbuclgv.supabase.co';
@@ -595,6 +595,7 @@ class SupabaseService {
           if (s.isDemo === true) return false;
           if (s.source === 'DEMO') return false;
           if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+          if (isBlacklistedStudent(s)) return false;
           return true;
         });
 
@@ -642,6 +643,17 @@ class SupabaseService {
       if (!repErr && repData && repData.length > 0) {
         let reports = repData.map(r => r.raw_data).filter(Boolean);
         reports = reports.map(r => {
+          if (r.records && Array.isArray(r.records)) {
+            const initialLen = r.records.length;
+            r.records = r.records.filter((rec: any) => !isBlacklistedStudent(rec));
+            if (r.records.length !== initialLen) {
+              r.totalStudents = r.records.length;
+              r.presentCount = r.records.filter((rec: any) => rec.status === 'PRESENT').length;
+              r.absentCount = r.records.filter((rec: any) => rec.status !== 'PRESENT').length;
+              r.boardingPresent = r.records.filter((rec: any) => rec.boardingType === 'BOARDING' && rec.status === 'PRESENT').length;
+              r.boardingTotal = r.records.filter((rec: any) => rec.boardingType === 'BOARDING').length;
+            }
+          }
           if (
             (r.teacherName && demoTeacherNames.includes(r.teacherName)) ||
             (r.submittedBy && demoTeacherNames.includes(r.submittedBy))
@@ -772,6 +784,7 @@ class SupabaseService {
    */
   public async saveStudentToSupabase(student: Student): Promise<boolean> {
     try {
+      if (!student || isBlacklistedStudent(student)) return false;
       const row = {
         id: student.id,
         code: student.code || student.studentCode || '',
@@ -809,9 +822,11 @@ class SupabaseService {
   public async saveStudentsBatchToSupabase(students: Student[]): Promise<boolean> {
     try {
       if (!students || students.length === 0) return true;
+      const validStudents = students.filter(s => !isBlacklistedStudent(s));
+      if (validStudents.length === 0) return true;
       const batchSize = 100;
-      for (let i = 0; i < students.length; i += batchSize) {
-        const chunk = students.slice(i, i + batchSize);
+      for (let i = 0; i < validStudents.length; i += batchSize) {
+        const chunk = validStudents.slice(i, i + batchSize);
         const rows = chunk.map(s => ({
           id: s.id,
           code: s.code || s.studentCode || '',

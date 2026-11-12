@@ -271,7 +271,8 @@ export const AttendanceReportPage: React.FC<AttendanceReportPageProps> = ({
       // Check for local draft (Mục XLIII: Tự động lưu bản nháp)
       const draft = draftService.getDraft(targetClass.id, reportDate, selectedSession);
       if (draft && draft.records && draft.records.length > 0) {
-        setRecords(draft.records);
+        const validDraftRecords = draft.records.filter(r => classStudents.some(cs => cs.id === r.studentId));
+        setRecords(validDraftRecords);
         setReportNotes(draft.notes || '');
         setCurrentStep('has_absent_list');
       } else {

@@ -43,6 +43,65 @@ export const STORAGE_KEYS = {
   SCHOOL_CALENDAR: 'thcs_banbo_v2_school_calendar',
 };
 
+// Danh sách các học sinh đã xóa khỏi hệ thống (Bùi Thị Diệp Thanh 7A1, Lò Diệp Hân 7A1, Bùi Văn Kiệt 9A2)
+export const PERMANENTLY_DELETED_STUDENT_IDS = new Set([
+  'stu_real_1792586757001_226_u47odx', // Bùi Thị Diệp Thanh (7A1, HS-7A1-25)
+  'stu_real_1792586757001_209_zscz8x', // Lò Diệp Hân (7A1, HS-7A1-08)
+  'stu_real_1792586757011_625_y1av9x', // Bùi Văn Kiệt (9A2, HS-9A2-11)
+]);
+
+export function isBlacklistedStudent(item: any): boolean {
+  if (!item) return false;
+
+  const id = item.id || item.studentId || '';
+  if (id && PERMANENTLY_DELETED_STUDENT_IDS.has(id)) return true;
+
+  try {
+    if (typeof localStorage !== 'undefined') {
+      const deletedRaw = localStorage.getItem('thcs_banbo_deleted_student_ids');
+      if (deletedRaw) {
+        const customDeleted: string[] = JSON.parse(deletedRaw);
+        if (id && customDeleted.includes(id)) return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  const rawName = (item.fullName || item.studentName || item.name || '').trim().toLowerCase();
+  const code = (item.code || item.studentCode || '').trim().toUpperCase();
+  const cls = (item.className || item.classId || '').trim().toUpperCase().replace(/^CLS_/, '');
+
+  // 1. Bùi Thị Diệp Thanh (Lớp 7A1, HS-7A1-25)
+  if (
+    rawName === 'bùi thị diệp thanh' ||
+    rawName === 'bui thi diep thanh' ||
+    (cls === '7A1' && (code === 'HS-7A1-25' || rawName.includes('diệp thanh') || rawName.includes('diep thanh')))
+  ) {
+    return true;
+  }
+
+  // 2. Lò Diệp Hân (Lớp 7A1, HS-7A1-08)
+  if (
+    rawName === 'lò diệp hân' ||
+    rawName === 'lo diep han' ||
+    (cls === '7A1' && (code === 'HS-7A1-08' || rawName.includes('diệp hân') || rawName.includes('diep han')))
+  ) {
+    return true;
+  }
+
+  // 3. Bùi Văn Kiệt (Lớp 9A2, HS-9A2-11)
+  if (
+    rawName === 'bùi văn kiệt' ||
+    rawName === 'bui van kiet' ||
+    (cls === '9A2' && (code === 'HS-9A2-11' || rawName.includes('văn kiệt') || rawName.includes('van kiet')))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 class StorageService {
   private initialized = false;
 
@@ -275,30 +334,20 @@ class StorageService {
       return true;
     });
 
-    // Chuẩn hóa và đồng bộ danh sách 778 học sinh chính thức Trường THCS Bản Bo
-    const excessStudentIds = new Set([
-      'stu_real_1792586757001_226_u47odx', // Bùi Thị Diệp Thanh (7A1)
-      'stu_real_1792586757001_209_zscz8x', // Lò Diệp Hân (7A1)
-      'stu_real_1792586757011_625_y1av9x', // Bùi Văn Kiệt (9A2)
-    ]);
+    // Loại bỏ vĩnh viễn các em học sinh đã xóa: Bùi Thị Diệp Thanh (7A1), Lò Diệp Hân (7A1), Bùi Văn Kiệt (9A2)
+    currentStudents = currentStudents.filter(s => !isBlacklistedStudent(s));
 
-    currentStudents = currentStudents.filter(s => {
-      if (excessStudentIds.has(s.id)) return false;
-      if (s.className === '7A1' && (s.code === 'HS-7A1-25' || s.studentCode === 'HS-7A1-25' || s.code === 'HS-7A1-08' || s.studentCode === 'HS-7A1-08')) return false;
-      if (s.className === '9A2' && (s.code === 'HS-9A2-11' || s.studentCode === 'HS-9A2-11')) return false;
-      return true;
-    });
-
-    const synced778Students = localStorage.getItem('thcs_banbo_sync_778_official_students_v4') === 'true';
-    if (!synced778Students || (currentStudents.length !== 778 && !studentsClearedByUser && INITIAL_STUDENTS.length === 778)) {
-      currentStudents = INITIAL_STUDENTS;
+    const syncedOfficialStudentsV5 = localStorage.getItem('thcs_banbo_sync_official_students_v5') === 'true';
+    if (!syncedOfficialStudentsV5 || (currentStudents.length === 0 && !studentsClearedByUser)) {
+      currentStudents = (currentStudents.length > 0 ? currentStudents : INITIAL_STUDENTS).filter(s => !isBlacklistedStudent(s));
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_dataset_status', 'ACTIVE_DATASET');
-      localStorage.setItem('thcs_banbo_sync_778_official_students_v4', 'true');
+      localStorage.setItem('thcs_banbo_sync_official_students_v5', 'true');
     } else {
       localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(currentStudents));
       localStorage.setItem('thcs_banbo_students', JSON.stringify(currentStudents));
+      localStorage.setItem('thcs_banbo_sync_official_students_v5', 'true');
     }
 
     // Làm sạch và đồng bộ tuyệt đối sĩ số trong toàn bộ báo cáo điểm danh theo danh sách học sinh thật (Ví dụ 7A1 chuẩn 36 HS, 9A2 chuẩn 42 HS)
@@ -332,8 +381,7 @@ class StorageService {
             const validCodes = new Set(clsStudents.map(s => s.studentCode || s.code));
 
             let records = (rep.records || []).filter(r =>
-              !excessStudentIds.has(r.studentId) &&
-              !['HS-7A1-25', 'HS-7A1-08', 'HS-9A2-11'].includes(r.studentCode || '') &&
+              !isBlacklistedStudent(r) &&
               (validIds.has(r.studentId) || validCodes.has(r.studentCode || ''))
             );
 
@@ -1227,12 +1275,13 @@ class StorageService {
         }
       }
 
-      // Loại bỏ hoàn toàn mọi học sinh demo giả lập
+      // Loại bỏ hoàn toàn mọi học sinh demo giả lập và các học sinh đã bị xóa
       const filtered = list.filter(s => {
         if (!s) return false;
         if (s.isDemo === true) return false;
         if (s.source === 'DEMO') return false;
         if (s.id && (s.id.startsWith('stu_banbo_') || /^stu_[6-9]a[1-5]_\d{2}$/.test(s.id))) return false;
+        if (isBlacklistedStudent(s)) return false;
         return true;
       });
 
@@ -1314,11 +1363,12 @@ class StorageService {
    */
   public restoreDefaultStudents(performedByName: string = 'Quản trị viên'): { success: boolean; count: number } {
     localStorage.removeItem('thcs_banbo_all_students_deleted_by_user');
-    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(INITIAL_STUDENTS));
-    localStorage.setItem('thcs_banbo_students', JSON.stringify(INITIAL_STUDENTS));
+    const validStudents = INITIAL_STUDENTS.filter(s => !isBlacklistedStudent(s));
+    localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(validStudents));
+    localStorage.setItem('thcs_banbo_students', JSON.stringify(validStudents));
     const classes = this.getClasses();
     const updatedClasses = classes.map(c => {
-      const clsStudents = INITIAL_STUDENTS.filter(s => s.className === c.name && s.status === 'active');
+      const clsStudents = validStudents.filter(s => s.className === c.name && s.status === 'active');
       const boardingCount = clsStudents.filter(s => s.boardingType === 'BOARDING' || s.studentType === 'boarding').length;
       const maleCount = clsStudents.filter(s => s.gender === 'male').length;
       const femaleCount = clsStudents.filter(s => s.gender === 'female').length;
@@ -1536,13 +1586,54 @@ class StorageService {
   }
 
   public deleteStudent(studentId: string) {
-    const students = this.getStudents().filter(s => s.id !== studentId);
+    // Lưu vào danh sách các ID đã xóa vĩnh viễn
+    try {
+      const rawDeleted = localStorage.getItem('thcs_banbo_deleted_student_ids');
+      const deletedSet: string[] = rawDeleted ? JSON.parse(rawDeleted) : [];
+      if (!deletedSet.includes(studentId)) {
+        deletedSet.push(studentId);
+        localStorage.setItem('thcs_banbo_deleted_student_ids', JSON.stringify(deletedSet));
+      }
+    } catch {
+      // ignore
+    }
+
+    const students = this.getStudents().filter(s => s.id !== studentId && !isBlacklistedStudent(s));
     localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(students));
     localStorage.setItem('thcs_banbo_students', JSON.stringify(students));
     this.syncClassesStudentCounts(students);
+
+    // Xóa học sinh này khỏi toàn bộ báo cáo điểm danh hiện có
+    try {
+      const rawReports = localStorage.getItem(STORAGE_KEYS.REPORTS);
+      if (rawReports) {
+        const reps: AttendanceReport[] = JSON.parse(rawReports);
+        let changed = false;
+        for (const rep of reps) {
+          const prevLen = rep.records?.length || 0;
+          rep.records = (rep.records || []).filter(r => r.studentId !== studentId && !isBlacklistedStudent(r));
+          if (rep.records.length !== prevLen) {
+            rep.totalStudents = rep.records.length;
+            rep.presentCount = rep.records.filter(r => r.status === 'PRESENT').length;
+            rep.absentCount = rep.records.filter(r => r.status !== 'PRESENT').length;
+            rep.boardingPresent = rep.records.filter(r => r.boardingType === 'BOARDING' && r.status === 'PRESENT').length;
+            rep.boardingTotal = rep.records.filter(r => r.boardingType === 'BOARDING').length;
+            changed = true;
+          }
+        }
+        if (changed) {
+          localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reps));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     supabaseService.deleteStudentFromSupabase(studentId).catch(() => {});
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('thcs_banbo_students_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      window.dispatchEvent(new CustomEvent('thcs_banbo_classes_changed'));
     }
   }
 
