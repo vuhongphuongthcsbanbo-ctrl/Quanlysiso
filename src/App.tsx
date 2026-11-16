@@ -66,6 +66,7 @@ const MainLayout: React.FC = () => {
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   useEffect(() => {
+    storageService.syncFromServer().catch(() => {});
     const unsub = supabaseService.subscribeToRealtimeChanges();
     supabaseService.pullFromSupabase().catch(() => {});
     return () => {

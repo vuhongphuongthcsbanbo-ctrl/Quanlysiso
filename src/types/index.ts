@@ -377,6 +377,7 @@ export interface SchoolDailyReport {
     nonBoardingAbsent: number;
     status: ReportStatus;
   }>;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -599,5 +600,71 @@ export type AttendanceDeadlineStatus =
   | 'LATE_SUBMITTED' // Đã nộp sau hạn (muộn)
   | 'APPROVED' // Đã duyệt hoàn thành
   | 'LOCKED'; // Đã khóa
+
+// ==========================================
+// BÁO CÁO ĐỊNH KỲ ĐÃ LƯU (TUẦN, THÁNG, HỌC KỲ, NĂM HỌC)
+// ==========================================
+
+export type SavedReportPeriodType =
+  | 'DAILY'
+  | 'WEEKLY'
+  | 'MONTHLY'
+  | 'SEMESTER_1'
+  | 'SEMESTER_2'
+  | 'SCHOOL_YEAR';
+
+export interface SavedPeriodVersionHistoryItem {
+  version: number;
+  savedAt: string;
+  savedBy: string;
+  savedByTitle?: string;
+  notes?: string;
+  attendanceRate: number;
+  presentCount: number;
+  absentCount: number;
+  expectedSessions: number;
+}
+
+export interface SavedPeriodReport {
+  id: string;
+  periodType: SavedReportPeriodType;
+  periodKey: string;
+  title: string;
+  schoolYearId: string;
+  session: 'MORNING' | 'AFTERNOON';
+  startDate: string;
+  endDate: string;
+  month?: number;
+  year?: number;
+  reportVersion: number;
+  status: 'SAVED' | 'LOCKED';
+  savedAt: string;
+  savedBy: string;
+  savedByTitle?: string;
+  notes?: string;
+  schoolDaysCount: number;
+  totalClasses: number;
+  totalStudentsRoster: number;
+  totalExpectedSessions: number;
+  totalPresentSessions: number;
+  totalAbsentSessions: number;
+  totalExcusedSessions: number;
+  totalUnexcusedSessions: number;
+  totalLateCount: number;
+  totalEarlyLeaveCount: number;
+  boardingExpected?: number;
+  boardingPresent?: number;
+  boardingAbsent?: number;
+  attendanceRate: number;
+  studentsWithAbsenceCount?: number;
+  gradeStats?: any[];
+  classStats: any[];
+  daysBreakdown?: any[];
+  frequentAbsentStudents?: any[];
+  versionHistory?: SavedPeriodVersionHistoryItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 
 

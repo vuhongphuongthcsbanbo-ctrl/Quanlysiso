@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -9,7 +10,76 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+
+// ==========================================
+// LƯU TRỮ BỀN VỮNG BÁO CÁO SĨ SỐ TRÊN SERVER (JSON FILE)
+// (Bảo đảm lưu được báo cáo Ngày, Tuần, Tháng, Học kỳ, Năm học)
+// ==========================================
+const DATA_DIR = path.resolve(__dirname, 'data');
+const REPORTS_STORE_FILE = path.join(DATA_DIR, 'saved_reports.json');
+
+interface ServerReportsStore {
+  dailyOfficialReports: any[];
+  periodReports: any[];
+  attendanceReports: any[];
+  updatedAt: string;
+}
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+}
+
+function readReportsStore(): ServerReportsStore {
+  try {
+    ensureDataDir();
+    if (!fs.existsSync(REPORTS_STORE_FILE)) {
+      return {
+        dailyOfficialReports: [],
+        periodReports: [],
+        attendanceReports: [],
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    const raw = fs.readFileSync(REPORTS_STORE_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return {
+      dailyOfficialReports: Array.isArray(parsed.dailyOfficialReports) ? parsed.dailyOfficialReports : [],
+      periodReports: Array.isArray(parsed.periodReports) ? parsed.periodReports : [],
+      attendanceReports: Array.isArray(parsed.attendanceReports) ? parsed.attendanceReports : [],
+      updatedAt: parsed.updatedAt || new Date().toISOString(),
+    };
+  } catch (err) {
+    console.warn('[THCS Bản Bo] Không thể đọc file saved_reports.json:', err);
+    return {
+      dailyOfficialReports: [],
+      periodReports: [],
+      attendanceReports: [],
+      updatedAt: new Date().toISOString(),
+    };
+  }
+}
+
+function writeReportsStore(store: ServerReportsStore) {
+  try {
+    ensureDataDir();
+    store.updatedAt = new Date().toISOString();
+    const tmpFile = `${REPORTS_STORE_FILE}.tmp`;
+    fs.writeFileSync(tmpFile, JSON.stringify(store, null, 2), 'utf-8');
+    fs.renameSync(tmpFile, REPORTS_STORE_FILE);
+  } catch (err) {
+    console.error('[THCS Bản Bo] Lỗi ghi file saved_reports.json:', err);
+  }
+}
+
+function normalizeServerSession(session?: string | null): 'MORNING' | 'AFTERNOON' {
+  if (!session) return 'MORNING';
+  const s = String(session).toUpperCase().trim();
+  if (s === 'AFTERNOON' || s === 'CHIEU' || s === 'CHIỀU') return 'AFTERNOON';
+  return 'MORNING';
+}
 
 // ==========================================
 // THỜI GIAN CHUẨN VIỆT NAM (Asia/Ho_Chi_Minh)
@@ -139,6 +209,117 @@ app.post('/api/reminders/check', (req, res) => {
     totalRuns: backendSchedulerRunCount,
   });
 });
+
+// 4. Lấy toàn bộ báo cáo đã lưu trên server (Ngày, Tuần, Tháng, Học kỳ, Năm học)
+app.get('/api/reports/saved', (req, res) => {
+  const store = readReportsStore();
+  res.json({
+    success: true,
+    ...store,
+  });
+});
+
+// 5. Lưu báo cáo sĩ số theo ngày (SchoolDailyReport)
+app.post('/api/reports/daily-official', (req, res) => {
+  const report = req.body;
+  if (!report || !report.date) {
+    res.status(400).json({ success: false, message: 'Thiếu dữ liệu báo cáo ngày.' });
+    return;
+  }
+  const store = readReportsStore();
+  const normSess = normalizeServerSession(report.session);
+  const normalized = { ...report, session: normSess };
+  const idx = store.dailyOfficialReports.findIndex(
+    (r) =>
+      r.id === normalized.id ||
+      (r.date === normalized.date && normalizeServerSession(r.session) === normSess)
+  );
+  if (idx >= 0) {
+    store.dailyOfficialReports[idx] = normalized;
+  } else {
+    store.dailyOfficialReports.push(normalized);
+  }
+  writeReportsStore(store);
+  res.json({ success: true, report: normalized });
+});
+
+app.delete('/api/reports/daily-official/:id', (req, res) => {
+  const { id } = req.params;
+  const store = readReportsStore();
+  const prevLen = store.dailyOfficialReports.length;
+  store.dailyOfficialReports = store.dailyOfficialReports.filter((r) => r.id !== id);
+  if (store.dailyOfficialReports.length !== prevLen) {
+    writeReportsStore(store);
+  }
+  res.json({ success: true });
+});
+
+// 6. Lưu báo cáo định kỳ (Tuần, Tháng, Học kỳ, Năm học)
+app.post('/api/reports/period', (req, res) => {
+  const report = req.body;
+  if (!report || !report.periodKey || !report.periodType) {
+    res.status(400).json({ success: false, message: 'Thiếu dữ liệu báo cáo định kỳ.' });
+    return;
+  }
+  const store = readReportsStore();
+  const normSess = normalizeServerSession(report.session);
+  const normalized = { ...report, session: normSess };
+  const idx = store.periodReports.findIndex(
+    (r) => r.id === normalized.id || r.periodKey === normalized.periodKey
+  );
+  if (idx >= 0) {
+    store.periodReports[idx] = normalized;
+  } else {
+    store.periodReports.push(normalized);
+  }
+  writeReportsStore(store);
+  res.json({ success: true, report: normalized });
+});
+
+app.delete('/api/reports/period/:id', (req, res) => {
+  const { id } = req.params;
+  const store = readReportsStore();
+  const prevLen = store.periodReports.length;
+  store.periodReports = store.periodReports.filter((r) => r.id !== id);
+  if (store.periodReports.length !== prevLen) {
+    writeReportsStore(store);
+  }
+  res.json({ success: true });
+});
+
+// 7. Đồng bộ báo cáo điểm danh từng lớp lên server
+app.post('/api/reports/attendance-sync', (req, res) => {
+  const incoming = Array.isArray(req.body?.reports)
+    ? req.body.reports
+    : req.body?.report
+    ? [req.body.report]
+    : [];
+  if (incoming.length === 0) {
+    res.json({ success: true, count: 0 });
+    return;
+  }
+  const store = readReportsStore();
+  for (const item of incoming) {
+    if (!item || !item.date || !item.classId) continue;
+    const normSess = normalizeServerSession(item.session);
+    const normalized = { ...item, session: normSess };
+    const idx = store.attendanceReports.findIndex(
+      (r) =>
+        r.id === normalized.id ||
+        (r.date === normalized.date &&
+          (r.classId === normalized.classId || r.className === normalized.className) &&
+          normalizeServerSession(r.session) === normSess)
+    );
+    if (idx >= 0) {
+      store.attendanceReports[idx] = normalized;
+    } else {
+      store.attendanceReports.push(normalized);
+    }
+  }
+  writeReportsStore(store);
+  res.json({ success: true, count: store.attendanceReports.length });
+});
+
 
 // ==========================================
 // MOUNT VITE MIDDLEWARE (DEV) HOẶC STATIC (PROD)

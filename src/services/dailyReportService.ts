@@ -346,6 +346,124 @@ class DailyReportService {
   }
 
   /**
+   * Save daily attendance snapshot (preliminary or official) without forcing full lock
+   */
+  public saveDailyReportSnapshot(
+    date: string,
+    session: SessionType = 'MORNING',
+    savedBy: string,
+    savedByTitle: string = 'Tổng Phụ trách Đội',
+    notes?: string
+  ): SchoolDailyReport {
+    const normSession = normalizeSession(session);
+    const reportData = this.getDailyAttendanceReport(date, normSession);
+    const existing = storageService.getDailyOfficialReport(date, normSession);
+    const newVersion = (existing?.reportVersion || 0) + 1;
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp = `${date} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const versionHistory = [...(existing?.versionHistory || [])];
+    if (existing) {
+      versionHistory.push({
+        version: existing.reportVersion || 1,
+        finalizedAt: existing.finalizedAt || existing.updatedAt,
+        finalizedBy: existing.finalizedBy || 'Admin',
+        finalizedByTitle: existing.finalizedByTitle,
+        revisionReason: existing.revisionReason || existing.notes,
+        totalStudentsSnapshot: existing.totalStudentsSnapshot,
+        presentCount: existing.presentCount,
+        absentCount: existing.absentCount,
+        boardingPresent: existing.boardingPresent,
+        nonBoardingPresent: existing.nonBoardingPresent,
+      });
+    }
+
+    const isAllApproved = reportData.approvedClasses === reportData.totalClasses && reportData.totalClasses > 0;
+    const nextStatus: SchoolDailyReport['reportStatus'] =
+      existing?.reportStatus === 'LOCKED'
+        ? 'LOCKED'
+        : isAllApproved
+        ? 'OFFICIAL'
+        : 'PRELIMINARY';
+
+    const snapshotReport: SchoolDailyReport = {
+      id: `daily_${date}_${normSession}`,
+      date,
+      session: normSession,
+      schoolYearId: reportData.schoolYearId,
+      reportVersion: newVersion,
+      reportStatus: nextStatus,
+      totalClasses: reportData.totalClasses,
+      submittedClasses: reportData.submittedClasses,
+      approvedClasses: reportData.approvedClasses,
+      pendingClasses: reportData.pendingClasses,
+      unsubmittedClassesCount: reportData.unsubmittedClassesCount,
+      totalStudents: reportData.totalStudentsRoster,
+      totalStudentsSnapshot: reportData.totalStudentsRoster,
+      confirmedStudents: reportData.confirmedStudents,
+      presentCount: reportData.presentCount,
+      absentCount: reportData.absentCount,
+      excusedAbsentCount: reportData.excusedAbsentCount,
+      unexcusedAbsentCount: reportData.unexcusedAbsentCount,
+      lateCount: reportData.lateCount,
+      earlyLeaveCount: reportData.earlyLeaveCount,
+      boardingTotal: reportData.boardingTotalRoster,
+      boardingTotalSnapshot: reportData.boardingTotalRoster,
+      boardingPresent: reportData.boardingPresent,
+      boardingAbsent: reportData.boardingAbsent,
+      nonBoardingTotal: reportData.nonBoardingTotalRoster,
+      nonBoardingTotalSnapshot: reportData.nonBoardingTotalRoster,
+      nonBoardingPresent: reportData.nonBoardingPresent,
+      nonBoardingAbsent: reportData.nonBoardingAbsent,
+      finalizedAt: timestamp,
+      finalizedBy: savedBy,
+      finalizedByTitle: savedByTitle,
+      notes: notes || existing?.notes,
+      unapprovedClassesList: reportData.unapprovedClasses,
+      versionHistory,
+      classesSnapshot: reportData.classRows.map(c => ({
+        classId: c.classId,
+        className: c.className,
+        grade: c.grade,
+        teacherName: c.teacherName,
+        totalStudents: c.totalStudents,
+        presentCount: typeof c.presentCount === 'number' ? c.presentCount : 0,
+        absentCount: typeof c.absentCount === 'number' ? c.absentCount : 0,
+        excusedAbsentCount: typeof c.excusedAbsentCount === 'number' ? c.excusedAbsentCount : 0,
+        unexcusedAbsentCount: typeof c.unexcusedAbsentCount === 'number' ? c.unexcusedAbsentCount : 0,
+        lateCount: typeof c.lateCount === 'number' ? c.lateCount : 0,
+        boardingTotal: c.boardingTotal,
+        boardingPresent: typeof c.boardingPresent === 'number' ? c.boardingPresent : 0,
+        boardingAbsent: typeof c.boardingAbsent === 'number' ? c.boardingAbsent : 0,
+        nonBoardingTotal: c.nonBoardingTotal,
+        nonBoardingPresent: typeof c.nonBoardingPresent === 'number' ? c.nonBoardingPresent : 0,
+        nonBoardingAbsent: typeof c.nonBoardingAbsent === 'number' ? c.nonBoardingAbsent : 0,
+        status: c.status,
+      })),
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+
+    storageService.saveDailyOfficialReport(snapshotReport);
+
+    storageService.addAuditLog(
+      savedBy,
+      `Lưu báo cáo sĩ số ngày ${date} (${getSessionDisplayName(normSession)}) - Phiên bản v${newVersion} (Có mặt: ${snapshotReport.presentCount}/${snapshotReport.totalStudents})`,
+      'report',
+      `LƯU BÁO CÁO NGÀY v${newVersion}`,
+      'admin_tpt',
+      normSession
+    );
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
+    return snapshotReport;
+  }
+
+  /**
    * Finalize and lock daily report with snapshot & versioning (Mục LVIII, LX, LXI)
    */
   public finalizeDailyReport(
@@ -355,15 +473,16 @@ class DailyReportService {
     finalizedByTitle: string = 'Tổng Phụ trách Đội',
     revisionReason?: string
   ): SchoolDailyReport {
-    const reportData = this.getDailyAttendanceReport(date, session);
-    const existing = storageService.getDailyOfficialReport(date, session);
+    const normSession = normalizeSession(session);
+    const reportData = this.getDailyAttendanceReport(date, normSession);
+    const existing = storageService.getDailyOfficialReport(date, normSession);
     const newVersion = (existing?.reportVersion || 0) + 1;
 
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const timestamp = `${date} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
 
-    const versionHistory = existing?.versionHistory || [];
+    const versionHistory = [...(existing?.versionHistory || [])];
     if (existing) {
       versionHistory.push({
         version: existing.reportVersion || 1,
@@ -380,9 +499,9 @@ class DailyReportService {
     }
 
     const officialReport: SchoolDailyReport = {
-      id: `daily_${date}_${session}`,
+      id: `daily_${date}_${normSession}`,
       date,
-      session,
+      session: normSession,
       schoolYearId: reportData.schoolYearId,
       reportVersion: newVersion,
       reportStatus: 'LOCKED',
@@ -411,6 +530,7 @@ class DailyReportService {
       finalizedAt: timestamp,
       finalizedBy,
       finalizedByTitle,
+      revisionReason,
       unapprovedClassesList: reportData.unapprovedClasses,
       versionHistory,
       classesSnapshot: reportData.classRows.map(c => ({
@@ -437,16 +557,20 @@ class DailyReportService {
     };
 
     storageService.saveDailyOfficialReport(officialReport);
-    storageService.lockAllReportsForDate(date, session, finalizedBy);
+    storageService.lockAllReportsForDate(date, normSession, finalizedBy);
 
     storageService.addAuditLog(
       finalizedBy,
-      `Chốt khóa báo cáo sĩ số toàn trường ngày ${date} (Phiên bản v${newVersion})${revisionReason ? ` - Lý do: ${revisionReason}` : ''}`,
+      `Chốt khóa báo cáo sĩ số toàn trường ngày ${date} (${getSessionDisplayName(normSession)} - Phiên bản v${newVersion})${revisionReason ? ` - Lý do: ${revisionReason}` : ''}`,
       'report',
-      `CHỐT SĨ SỐ v${newVersion}`
+      `CHỐT SĨ SỐ v${newVersion}`,
+      'admin_tpt',
+      normSession
     );
 
-    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
     return officialReport;
   }
 
@@ -459,29 +583,48 @@ class DailyReportService {
     unlockedBy: string,
     reason: string
   ): boolean {
-    const existing = storageService.getDailyOfficialReport(date, session);
+    const normSession = normalizeSession(session);
+    const existing = storageService.getDailyOfficialReport(date, normSession);
     if (!existing) return false;
 
     existing.reportStatus = 'PRELIMINARY';
+    existing.revisionReason = reason;
     existing.updatedAt = new Date().toISOString();
     storageService.saveDailyOfficialReport(existing);
 
     // Also set locked reports back to APPROVED so teachers/admin can request revisions
-    const reports = storageService.getReportsByDate(date, session);
-    reports.forEach(r => {
-      if (r.status === 'LOCKED' || (r.status as string) === 'locked') {
+    const allReports = storageService.getReports();
+    const unlockedIds: string[] = [];
+    allReports.forEach(r => {
+      if (
+        r.date === date &&
+        normalizeSession(r.session) === normSession &&
+        (r.status === 'LOCKED' || (r.status as string) === 'locked')
+      ) {
         r.status = 'APPROVED';
+        r.unlockReason = reason;
+        r.unlockedBy = unlockedBy;
+        r.unlockedAt = new Date().toISOString();
+        r.updatedAt = new Date().toISOString();
+        unlockedIds.push(r.id);
       }
     });
-    localStorage.setItem('thcs_banbo_v2_reports', JSON.stringify(storageService.getReports()));
+    localStorage.setItem('thcs_banbo_v2_reports', JSON.stringify(allReports));
+    allReports
+      .filter(r => unlockedIds.includes(r.id))
+      .forEach(r => storageService.saveReport(r));
 
     storageService.addAuditLog(
       unlockedBy,
-      `Mở khóa báo cáo ngày ${date} để hiệu chỉnh. Lí do: "${reason}"`,
+      `Mở khóa báo cáo ngày ${date} (${getSessionDisplayName(normSession)}) để hiệu chỉnh. Lí do: "${reason}"`,
       'report',
-      'MỞ KHÓA BÁO CÁO'
+      'MỞ KHÓA BÁO CÁO',
+      'admin_tpt',
+      normSession
     );
-    window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
     return true;
   }
 

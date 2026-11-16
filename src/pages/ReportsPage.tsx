@@ -1,12 +1,11 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
 import { dailyReportService } from '../services/dailyReportService';
 import { excelExportService } from '../../src/services/excelExportService';
 import { pdfExportService } from '../../src/services/pdfExportService';
-import { printService } from '../../src/services/printService';
 import { formatVietnameseDate, getTodayDateString } from '../utils/formatters';
-import { SessionType } from '../types';
+import { SavedPeriodReport, SessionType, getSessionDisplayName } from '../types';
 
 // Sub-components
 import { AttendanceCharts } from '../components/reports/AttendanceCharts';
@@ -46,6 +45,9 @@ import {
   ArrowRight,
   RotateCw,
   AlertCircle,
+  Save,
+  Sun,
+  Sunset,
 } from 'lucide-react';
 import { ConfirmDialog } from '../theme/designSystem';
 
@@ -88,8 +90,25 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [isConfirmFinalizeOpen, setIsConfirmFinalizeOpen] = useState(false);
   const [selectedStudentForProfile, setSelectedStudentForProfile] = useState<string | null>(null);
+  const [refreshTick, setRefreshTick] = useState(0);
+  const [dailySaveBanner, setDailySaveBanner] = useState<string | null>(null);
+  const [jumpWeekRange, setJumpWeekRange] = useState<{ startDate: string; endDate: string } | null>(null);
+  const [jumpMonth, setJumpMonth] = useState<{ year: number; month: number } | null>(null);
+  const [jumpSemesterPeriod, setJumpSemesterPeriod] = useState<'SEMESTER_1' | 'SEMESTER_2' | 'FULL_YEAR' | null>(null);
 
   const dailyReportContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDataChanged = () => setRefreshTick(t => t + 1);
+    window.addEventListener('thcs_banbo_reports_changed', onDataChanged);
+    window.addEventListener('thcs_banbo_students_changed', onDataChanged);
+    window.addEventListener('thcs_banbo_classes_changed', onDataChanged);
+    return () => {
+      window.removeEventListener('thcs_banbo_reports_changed', onDataChanged);
+      window.removeEventListener('thcs_banbo_students_changed', onDataChanged);
+      window.removeEventListener('thcs_banbo_classes_changed', onDataChanged);
+    };
+  }, []);
 
   // Permission checks (Mục LXVI, LXVII)
   const canExportSchool =
@@ -102,18 +121,25 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
   const canExportClass =
     canExportSchool || !!currentUser?.permissions?.canExportClassReports;
 
+  const canSaveReports =
+    isAdmin ||
+    currentUser?.role === 'principal' ||
+    currentUser?.role === 'BOARD_OF_MANAGEMENT' ||
+    !!currentUser?.permissions?.canFinalizeAttendance ||
+    !!currentUser?.permissions?.canExportSchoolReports;
+
   // Real data for Daily report
   const dailyData = useMemo(() => {
     return dailyReportService.getDailyAttendanceReport(selectedDate, selectedSession);
-  }, [selectedDate, selectedSession]);
+  }, [selectedDate, selectedSession, refreshTick]);
 
   // Comparison with previous day (Mục LXXIII)
   const dayComparison = useMemo(() => {
     return dailyReportService.compareWithPreviousDay(selectedDate, selectedSession);
-  }, [selectedDate, selectedSession]);
+  }, [selectedDate, selectedSession, refreshTick]);
 
   // Classes list
-  const classes = useMemo(() => storageService.getClasses(), []);
+  const classes = useMemo(() => storageService.getClasses(), [refreshTick]);
 
   // Trend data for line chart (past 7 days)
   const trendData = useMemo(() => {
@@ -140,7 +166,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
       });
     }
     return list;
-  }, [selectedDate, selectedSession]);
+  }, [selectedDate, selectedSession, refreshTick]);
 
   // Copy Quick Report Text (Mục XII)
   const handleCopyQuick = () => {
@@ -205,6 +231,20 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
     }
   };
 
+  // Save Daily Report Snapshot without forcing full lock
+  const handleSaveDailySnapshot = () => {
+    const saved = dailyReportService.saveDailyReportSnapshot(
+      selectedDate,
+      selectedSession,
+      currentUser?.name || settings.adminName,
+      currentUser?.title || settings.adminTitle
+    );
+    setDailySaveBanner(
+      `Đã lưu báo cáo ngày ${selectedDate} (${getSessionDisplayName(selectedSession)}) · Phiên bản v${saved.reportVersion} lúc ${saved.finalizedAt || saved.updatedAt}`
+    );
+    setTimeout(() => setDailySaveBanner(null), 5000);
+  };
+
   // Finalize Daily Report (Mục LVIII, LXI)
   const handleFinalizeReport = () => {
     if (!isAdmin) {
@@ -215,13 +255,17 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
   };
 
   const executeFinalizeReport = () => {
-    dailyReportService.finalizeDailyReport(
+    const finalized = dailyReportService.finalizeDailyReport(
       selectedDate,
       selectedSession,
       currentUser?.name || settings.adminName,
       currentUser?.title || settings.adminTitle
     );
     setIsConfirmFinalizeOpen(false);
+    setDailySaveBanner(
+      `Đã chốt khóa báo cáo chính thức ngày ${selectedDate} (${getSessionDisplayName(selectedSession)}) · Phiên bản v${finalized.reportVersion}`
+    );
+    setTimeout(() => setDailySaveBanner(null), 5000);
   };
 
   // Unlock Daily Report (Mục LVIII, CXII)
@@ -241,6 +285,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
 
     setShowUnlockModal(false);
     setUnlockReasonInput('');
+    setDailySaveBanner(`Đã mở khóa báo cáo ngày ${selectedDate} (${getSessionDisplayName(selectedSession)}) để hiệu chỉnh.`);
+    setTimeout(() => setDailySaveBanner(null), 4000);
   };
 
   // Navigation tabs list (Mục IV)
@@ -278,8 +324,33 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
           </p>
         </div>
 
-        {/* Global Action Buttons for Current Daily Report */}
+        {/* Global Session Switcher & Action Buttons for Current Report */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl font-bold">
+            <button
+              onClick={() => setSelectedSession('MORNING')}
+              className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors ${
+                selectedSession === 'MORNING'
+                  ? 'bg-amber-500 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sun className="w-3.5 h-3.5" />
+              <span>Buổi Sáng</span>
+            </button>
+            <button
+              onClick={() => setSelectedSession('AFTERNOON')}
+              className={`px-2.5 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer transition-colors ${
+                selectedSession === 'AFTERNOON'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sunset className="w-3.5 h-3.5" />
+              <span>Buổi Chiều</span>
+            </button>
+          </div>
+
           <button
             onClick={handleCopyQuick}
             className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
@@ -393,58 +464,89 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
       {(activeTab === 'TODAY' || activeTab === 'BY_DATE') && (
         <div className="space-y-4">
           {/* Date Picker & Status Banner (Mục LV, LVII) */}
-          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 print:hidden">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs">
-                <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                <span className="font-medium text-slate-500">Ngày:</span>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="bg-transparent font-bold text-slate-900 focus:outline-hidden cursor-pointer"
-                />
-              </div>
+          <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs space-y-3 print:hidden">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs">
+                  <Calendar className="w-3.5 h-3.5 text-slate-500" />
+                  <span className="font-medium text-slate-500">Ngày:</span>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="bg-transparent font-bold text-slate-900 focus:outline-hidden cursor-pointer"
+                  />
+                </div>
 
-              <div className={`px-3 py-1 rounded-full text-xs font-black inline-flex items-center gap-1.5 ${
-                dailyData.isOfficial
-                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                  : 'bg-amber-100 text-amber-900 border border-amber-300'
-              }`}>
-                {dailyData.isOfficial ? (
-                  <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
-                    <span>BÁO CÁO CHÍNH THỨC (v{dailyData.reportVersion})</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
-                    <span>BÁO CÁO SƠ BỘ ({dailyData.approvedClasses}/{dailyData.totalClasses} LỚP ĐÃ DUYỆT)</span>
-                  </>
+                <div className={`px-3 py-1 rounded-full text-xs font-black inline-flex items-center gap-1.5 ${
+                  dailyData.isOfficial
+                    ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-900 border border-amber-300'
+                }`}>
+                  {dailyData.isOfficial ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                      <span>BÁO CÁO CHÍNH THỨC (v{dailyData.reportVersion})</span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                      <span>BÁO CÁO SƠ BỘ ({dailyData.approvedClasses}/{dailyData.totalClasses} LỚP ĐÃ DUYỆT)</span>
+                    </>
+                  )}
+                </div>
+
+                {dailyData.savedOfficial && (
+                  <span className="text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
+                    Đã lưu kho v{dailyData.savedOfficial.reportVersion || 1} · {dailyData.savedOfficial.finalizedAt || dailyData.savedOfficial.updatedAt}
+                  </span>
                 )}
               </div>
+
+              {/* Save / Lock / Unlock actions */}
+              {(canSaveReports || isAdmin) && (
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {canSaveReports && (
+                    <button
+                      onClick={handleSaveDailySnapshot}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" />
+                      <span>
+                        {dailyData.savedOfficial
+                          ? `Cập nhật lưu ngày (v${(dailyData.savedOfficial.reportVersion || 1) + 1})`
+                          : 'Lưu báo cáo ngày'}
+                      </span>
+                    </button>
+                  )}
+
+                  {isAdmin && (
+                    dailyData.isOfficialLocked ? (
+                      <button
+                        onClick={() => setShowUnlockModal(true)}
+                        className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Unlock className="w-3.5 h-3.5" />
+                        <span>Mở khóa hiệu chỉnh</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleFinalizeReport}
+                        className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Chốt khóa báo cáo ngày</span>
+                      </button>
+                    )
+                  )}
+                </div>
+              )}
             </div>
 
-            {/* Lock / Unlock actions for Admin */}
-            {isAdmin && (
-              <div className="flex items-center gap-2 text-xs">
-                {dailyData.isOfficialLocked ? (
-                  <button
-                    onClick={() => setShowUnlockModal(true)}
-                    className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Unlock className="w-3.5 h-3.5" />
-                    <span>Mở khóa hiệu chỉnh</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleFinalizeReport}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    <span>Chốt khóa báo cáo ngày</span>
-                  </button>
-                )}
+            {dailySaveBanner && (
+              <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{dailySaveBanner}</span>
               </div>
             )}
           </div>
@@ -772,7 +874,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
 
       {/* TAB 3: THEO TUẦN (Mục XIV, XV, XVI) */}
       {activeTab === 'WEEKLY' && (
-        <WeeklyAttendanceReportView currentDate={selectedDate} session={selectedSession} />
+        <WeeklyAttendanceReportView
+          currentDate={selectedDate}
+          session={selectedSession}
+          initialStartDate={jumpWeekRange?.startDate}
+          initialEndDate={jumpWeekRange?.endDate}
+        />
       )}
 
       {/* TAB 4: THEO THÁNG (Mục XVIII, XIX, XX, XLIV) */}
@@ -780,6 +887,8 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
         <MonthlyAttendanceReportView
           session={selectedSession}
           canExport={canExportSchool}
+          initialYear={jumpMonth?.year}
+          initialMonth={jumpMonth?.month}
           onSelectStudentProfile={(stuId) => {
             setSelectedStudentForProfile(stuId);
             setActiveTab('STUDENT_PROFILE');
@@ -789,12 +898,18 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
 
       {/* TAB 5: THEO HỌC KỲ (Mục XXI) */}
       {activeTab === 'SEMESTER' && (
-        <SemesterAttendanceReportView session={selectedSession} />
+        <SemesterAttendanceReportView
+          session={selectedSession}
+          defaultPeriod={jumpSemesterPeriod || 'SEMESTER_1'}
+        />
       )}
 
       {/* TAB 6: THEO NĂM HỌC (Mục XXII) */}
       {activeTab === 'SCHOOL_YEAR' && (
-        <SemesterAttendanceReportView session={selectedSession} />
+        <SemesterAttendanceReportView
+          session={selectedSession}
+          defaultPeriod="FULL_YEAR"
+        />
       )}
 
       {/* TAB 7: THEO LỚP (Mục LXII, LXIII, LXIV) */}
@@ -876,6 +991,21 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
             setSelectedDate(dt);
             setSelectedSession(sess);
             setActiveTab('BY_DATE');
+          }}
+          onViewPeriodReport={(rep) => {
+            setSelectedSession(rep.session);
+            if (rep.periodType === 'WEEKLY') {
+              setJumpWeekRange({ startDate: rep.startDate, endDate: rep.endDate });
+              setActiveTab('WEEKLY');
+            } else if (rep.periodType === 'MONTHLY' && rep.year && rep.month) {
+              setJumpMonth({ year: rep.year, month: rep.month });
+              setActiveTab('MONTHLY');
+            } else if (rep.periodType === 'SCHOOL_YEAR') {
+              setActiveTab('SCHOOL_YEAR');
+            } else if (rep.periodType === 'SEMESTER_1' || rep.periodType === 'SEMESTER_2') {
+              setJumpSemesterPeriod(rep.periodType);
+              setActiveTab('SEMESTER');
+            }
           }}
         />
       )}

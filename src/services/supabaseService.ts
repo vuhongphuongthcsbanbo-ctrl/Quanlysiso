@@ -1,6 +1,15 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { STORAGE_KEYS, isBlacklistedStudent } from './storageService';
-import { Student, SchoolClass, AttendanceReport, User, SchoolSettings, AuditLog } from '../types';
+import {
+  Student,
+  SchoolClass,
+  AttendanceReport,
+  SchoolDailyReport,
+  SavedPeriodReport,
+  User,
+  SchoolSettings,
+  normalizeSession,
+} from '../types';
 
 const rawUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 'https://mqegeosjfggffvbuclgv.supabase.co';
 export const SUPABASE_URL = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
@@ -225,6 +234,53 @@ CREATE POLICY "Cho phép truy cập notifications" ON public.notifications FOR A
 
 DROP POLICY IF EXISTS "Cho phép truy cập audit_logs" ON public.audit_logs;
 CREATE POLICY "Cho phép truy cập audit_logs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+
+-- 9. Bảng báo cáo sĩ số tổng hợp theo ngày (Official Daily Reports)
+CREATE TABLE IF NOT EXISTS public.daily_official_reports (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  session TEXT NOT NULL DEFAULT 'MORNING',
+  school_year_id TEXT DEFAULT '2026-2027',
+  report_status TEXT DEFAULT 'PRELIMINARY',
+  report_version INTEGER DEFAULT 1,
+  total_students INTEGER DEFAULT 0,
+  present_count INTEGER DEFAULT 0,
+  absent_count INTEGER DEFAULT 0,
+  finalized_at TEXT,
+  finalized_by TEXT,
+  raw_data JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 10. Bảng báo cáo định kỳ đã lưu (Tuần, Tháng, Học kỳ, Năm học)
+CREATE TABLE IF NOT EXISTS public.period_reports (
+  id TEXT PRIMARY KEY,
+  period_type TEXT NOT NULL,
+  period_key TEXT NOT NULL UNIQUE,
+  title TEXT NOT NULL,
+  school_year_id TEXT DEFAULT '2026-2027',
+  session TEXT NOT NULL DEFAULT 'MORNING',
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  report_version INTEGER DEFAULT 1,
+  status TEXT DEFAULT 'SAVED',
+  saved_at TEXT,
+  saved_by TEXT,
+  attendance_rate NUMERIC DEFAULT 100,
+  raw_data JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.daily_official_reports ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.period_reports ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Cho phép truy cập daily_official_reports" ON public.daily_official_reports;
+CREATE POLICY "Cho phép truy cập daily_official_reports" ON public.daily_official_reports FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Cho phép truy cập period_reports" ON public.period_reports;
+CREATE POLICY "Cho phép truy cập period_reports" ON public.period_reports FOR ALL USING (true) WITH CHECK (true);
 `;
 
 class SupabaseService {
@@ -448,14 +504,69 @@ class SupabaseService {
         await supabase.from('users').upsert(rows, { onConflict: 'id' });
       }
 
+      // 6. Đồng bộ Báo cáo ngày chính thức & Báo cáo định kỳ (Tuần, Tháng, Học kỳ, Năm học) nếu bảng tồn tại
+      const rawDailyOfficial = localStorage.getItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
+      const dailyOfficialList: SchoolDailyReport[] = rawDailyOfficial ? JSON.parse(rawDailyOfficial) : [];
+      if (dailyOfficialList.length > 0) {
+        try {
+          const rows = dailyOfficialList.map(d => ({
+            id: d.id,
+            date: d.date,
+            session: normalizeSession(d.session),
+            school_year_id: d.schoolYearId || '2026-2027',
+            report_status: d.reportStatus || 'PRELIMINARY',
+            report_version: d.reportVersion || 1,
+            total_students: d.totalStudentsSnapshot ?? d.totalStudents ?? 0,
+            present_count: d.presentCount || 0,
+            absent_count: d.absentCount || 0,
+            finalized_at: d.finalizedAt || null,
+            finalized_by: d.finalizedBy || '',
+            raw_data: d,
+            updated_at: new Date().toISOString(),
+          }));
+          await supabase.from('daily_official_reports').upsert(rows, { onConflict: 'id' });
+        } catch {
+          // Bảng tùy chọn có thể chưa được tạo trên Supabase
+        }
+      }
+
+      const rawPeriodReports = localStorage.getItem(STORAGE_KEYS.PERIOD_REPORTS);
+      const periodReportsList: SavedPeriodReport[] = rawPeriodReports ? JSON.parse(rawPeriodReports) : [];
+      if (periodReportsList.length > 0) {
+        try {
+          const rows = periodReportsList.map(p => ({
+            id: p.id,
+            period_type: p.periodType,
+            period_key: p.periodKey,
+            title: p.title,
+            school_year_id: p.schoolYearId || '2026-2027',
+            session: normalizeSession(p.session),
+            start_date: p.startDate,
+            end_date: p.endDate,
+            report_version: p.reportVersion || 1,
+            status: p.status || 'SAVED',
+            saved_at: p.savedAt,
+            saved_by: p.savedBy,
+            attendance_rate: p.attendanceRate || 0,
+            raw_data: p,
+            updated_at: new Date().toISOString(),
+          }));
+          await supabase.from('period_reports').upsert(rows, { onConflict: 'id' });
+        } catch {
+          // Bảng tùy chọn có thể chưa được tạo trên Supabase
+        }
+      }
+
       return {
         success: true,
-        message: `Đồng bộ thành công lên Supabase: ${classes.length} lớp, ${students.length} học sinh, ${users.length} tài khoản, ${reports.length} báo cáo sĩ số!`,
+        message: `Đồng bộ thành công lên Supabase: ${classes.length} lớp, ${students.length} học sinh, ${users.length} tài khoản, ${reports.length} báo cáo lớp, ${dailyOfficialList.length} báo cáo ngày, ${periodReportsList.length} báo cáo định kỳ!`,
         details: {
           classesCount: classes.length,
           studentsCount: students.length,
           usersCount: users.length,
           reportsCount: reports.length,
+          dailyOfficialCount: dailyOfficialList.length,
+          periodReportsCount: periodReportsList.length,
         },
       };
     } catch (err: any) {
@@ -638,11 +749,11 @@ class SupabaseService {
         }
       }
 
-      // 3. Lấy báo cáo điểm danh
+      // 3. Lấy báo cáo điểm danh (Hợp nhất thay vì ghi đè để không làm mất báo cáo mới lưu cục bộ)
       const { data: repData, error: repErr } = await supabase.from('attendance_reports').select('raw_data');
       if (!repErr && repData && repData.length > 0) {
-        let reports = repData.map(r => r.raw_data).filter(Boolean);
-        reports = reports.map(r => {
+        let remoteReports = repData.map(r => r.raw_data).filter(Boolean);
+        remoteReports = remoteReports.map(r => {
           if (r.records && Array.isArray(r.records)) {
             const initialLen = r.records.length;
             r.records = r.records.filter((rec: any) => !isBlacklistedStudent(rec));
@@ -667,9 +778,89 @@ class SupabaseService {
           }
           return r;
         });
-        if (reports.length > 0) {
-          localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+
+        if (remoteReports.length > 0) {
+          const rawLocal = localStorage.getItem(STORAGE_KEYS.REPORTS);
+          const localReports: AttendanceReport[] = rawLocal ? JSON.parse(rawLocal) : [];
+          const mergedMap = new Map<string, AttendanceReport>();
+
+          const getKey = (rep: AttendanceReport) =>
+            `${rep.date}_${(rep.classId || rep.className || '').toLowerCase()}_${normalizeSession(rep.session)}`;
+          const statusRank = (s?: string) => {
+            const up = String(s || '').toUpperCase();
+            if (up === 'LOCKED') return 5;
+            if (up === 'APPROVED') return 4;
+            if (up === 'PENDING_APPROVAL' || up === 'SUBMITTED') return 3;
+            if (up === 'REVISION_REQUIRED' || up === 'NEEDS_REVISION') return 2;
+            return 1;
+          };
+
+          for (const lr of localReports) {
+            mergedMap.set(getKey(lr), lr);
+          }
+          for (const rr of remoteReports) {
+            const k = getKey(rr);
+            const existing = mergedMap.get(k);
+            if (!existing) {
+              mergedMap.set(k, rr);
+            } else {
+              const localTime = Date.parse(existing.updatedAt || '') || 0;
+              const remoteTime = Date.parse(rr.updatedAt || '') || 0;
+              if (remoteTime > localTime || (remoteTime === localTime && statusRank(rr.status) > statusRank(existing.status))) {
+                mergedMap.set(k, rr);
+              }
+            }
+          }
+
+          localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(Array.from(mergedMap.values())));
         }
+      }
+
+      // 3.5. Lấy báo cáo tổng hợp ngày & báo cáo định kỳ nếu bảng tồn tại trên Supabase
+      try {
+        const { data: dailyOffData, error: dailyOffErr } = await supabase.from('daily_official_reports').select('raw_data');
+        if (!dailyOffErr && dailyOffData && dailyOffData.length > 0) {
+          const remoteDaily: SchoolDailyReport[] = dailyOffData.map(d => d.raw_data).filter(Boolean);
+          const rawLocalDaily = localStorage.getItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
+          const localDaily: SchoolDailyReport[] = rawLocalDaily ? JSON.parse(rawLocalDaily) : [];
+          const map = new Map<string, SchoolDailyReport>();
+          for (const item of localDaily) {
+            map.set(`${item.date}_${normalizeSession(item.session)}`, item);
+          }
+          for (const item of remoteDaily) {
+            const key = `${item.date}_${normalizeSession(item.session)}`;
+            const existing = map.get(key);
+            if (!existing || (item.reportVersion || 1) > (existing.reportVersion || 1) || (item.updatedAt || '') > (existing.updatedAt || '')) {
+              map.set(key, item);
+            }
+          }
+          localStorage.setItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS, JSON.stringify(Array.from(map.values())));
+        }
+      } catch {
+        // Bỏ qua nếu bảng chưa tồn tại
+      }
+
+      try {
+        const { data: periodData, error: periodErr } = await supabase.from('period_reports').select('raw_data');
+        if (!periodErr && periodData && periodData.length > 0) {
+          const remotePeriod: SavedPeriodReport[] = periodData.map(p => p.raw_data).filter(Boolean);
+          const rawLocalPeriod = localStorage.getItem(STORAGE_KEYS.PERIOD_REPORTS);
+          const localPeriod: SavedPeriodReport[] = rawLocalPeriod ? JSON.parse(rawLocalPeriod) : [];
+          const map = new Map<string, SavedPeriodReport>();
+          for (const item of localPeriod) {
+            map.set(item.periodKey || item.id, item);
+          }
+          for (const item of remotePeriod) {
+            const key = item.periodKey || item.id;
+            const existing = map.get(key);
+            if (!existing || (item.reportVersion || 1) > (existing.reportVersion || 1) || (item.updatedAt || '') > (existing.updatedAt || '')) {
+              map.set(key, item);
+            }
+          }
+          localStorage.setItem(STORAGE_KEYS.PERIOD_REPORTS, JSON.stringify(Array.from(map.values())));
+        }
+      } catch {
+        // Bỏ qua nếu bảng chưa tồn tại
       }
 
       // 4. Lấy cài đặt
@@ -956,6 +1147,74 @@ class SupabaseService {
       }, { onConflict: 'id' });
     } catch (err) {
       console.warn('Lưu Supabase nền không thành công:', err);
+    }
+  }
+
+  /**
+   * Lưu báo cáo tổng hợp ngày (SchoolDailyReport) lên Supabase nếu bảng tồn tại
+   */
+  public async saveDailyOfficialReportToSupabase(report: SchoolDailyReport) {
+    try {
+      await supabase.from('daily_official_reports').upsert({
+        id: report.id,
+        date: report.date,
+        session: normalizeSession(report.session),
+        school_year_id: report.schoolYearId || '2026-2027',
+        report_status: report.reportStatus || 'PRELIMINARY',
+        report_version: report.reportVersion || 1,
+        total_students: report.totalStudentsSnapshot ?? report.totalStudents ?? 0,
+        present_count: report.presentCount || 0,
+        absent_count: report.absentCount || 0,
+        finalized_at: report.finalizedAt || null,
+        finalized_by: report.finalizedBy || '',
+        raw_data: report,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    } catch {
+      // Bảng tùy chọn chưa tạo trên Supabase - bỏ qua an toàn
+    }
+  }
+
+  public async deleteDailyOfficialReportFromSupabase(id: string) {
+    try {
+      await supabase.from('daily_official_reports').delete().eq('id', id);
+    } catch {
+      // ignore
+    }
+  }
+
+  /**
+   * Lưu báo cáo định kỳ (Tuần, Tháng, Học kỳ, Năm học) lên Supabase nếu bảng tồn tại
+   */
+  public async savePeriodReportToSupabase(report: SavedPeriodReport) {
+    try {
+      await supabase.from('period_reports').upsert({
+        id: report.id,
+        period_type: report.periodType,
+        period_key: report.periodKey,
+        title: report.title,
+        school_year_id: report.schoolYearId || '2026-2027',
+        session: normalizeSession(report.session),
+        start_date: report.startDate,
+        end_date: report.endDate,
+        report_version: report.reportVersion || 1,
+        status: report.status || 'SAVED',
+        saved_at: report.savedAt,
+        saved_by: report.savedBy,
+        attendance_rate: report.attendanceRate || 0,
+        raw_data: report,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    } catch {
+      // Bảng tùy chọn chưa tạo trên Supabase - bỏ qua an toàn
+    }
+  }
+
+  public async deletePeriodReportFromSupabase(id: string) {
+    try {
+      await supabase.from('period_reports').delete().eq('id', id);
+    } catch {
+      // ignore
     }
   }
 

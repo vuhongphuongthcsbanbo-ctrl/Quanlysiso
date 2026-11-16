@@ -5,6 +5,8 @@ import {
   AttendanceReport,
   AttendanceRecord,
   SchoolDailyReport,
+  SavedPeriodReport,
+  SavedReportPeriodType,
   SchoolSettings,
   AuditLog,
   BoardingType,
@@ -34,6 +36,7 @@ export const STORAGE_KEYS = {
   STUDENTS: 'thcs_banbo_v2_students',
   REPORTS: 'thcs_banbo_v2_reports',
   DAILY_OFFICIAL_REPORTS: 'thcs_banbo_v2_daily_official',
+  PERIOD_REPORTS: 'thcs_banbo_v2_period_reports',
   SETTINGS: 'thcs_banbo_v2_settings',
   LOGS: 'thcs_banbo_v2_audit_logs',
   CURRENT_USER: 'thcs_banbo_v2_auth_user',
@@ -1746,8 +1749,12 @@ class StorageService {
     }
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
 
-    // Đồng bộ tức thời lên Supabase ở chế độ nền
+    // Đồng bộ tức thời lên Supabase và Server backend ở chế độ nền
     supabaseService.saveReportToSupabase(normalizedReport);
+    this.postToServer('/api/reports/attendance-sync', { report: normalizedReport });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
   }
 
   // APPROVAL WORKFLOW METHODS (Section L, M, N, O, V)
@@ -1963,16 +1970,23 @@ class StorageService {
     const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
     const timestamp = `${date} ${timeStr}`;
 
+    const lockedReports: AttendanceReport[] = [];
     reports.forEach(r => {
       if (r.date === date && normalizeSession(r.session) === norm && r.status === 'APPROVED') {
         r.status = 'LOCKED';
         r.lockedAt = timestamp;
         r.lockedBy = lockedBy;
         r.updatedAt = timestamp;
+        lockedReports.push(r);
       }
     });
 
     localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(reports));
+    lockedReports.forEach(r => supabaseService.saveReportToSupabase(r));
+    if (lockedReports.length > 0) {
+      this.postToServer('/api/reports/attendance-sync', { reports: lockedReports });
+    }
+
     const sessionText = getSessionDisplayName(norm);
     this.addAuditLog(
       lockedBy,
@@ -1982,6 +1996,25 @@ class StorageService {
       'admin_tpt',
       norm
     );
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
+  }
+
+  private postToServer(url: string, body: any) {
+    if (typeof fetch === 'undefined') return;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).catch(() => {
+      // Không chặn luồng chính nếu server tạm gián đoạn
+    });
+  }
+
+  private deleteFromServer(url: string) {
+    if (typeof fetch === 'undefined') return;
+    fetch(url, { method: 'DELETE' }).catch(() => {});
   }
 
   // OFFICIAL DAILY REPORT (Section XLVI)
@@ -1992,15 +2025,26 @@ class StorageService {
       const targetSession = normalizeSession(report.session);
       const normalizedReport: SchoolDailyReport = {
         ...report,
+        id: report.id || `daily_${report.date}_${targetSession}`,
         session: targetSession,
       };
-      const idx = list.findIndex(r => r.date === normalizedReport.date && normalizeSession(r.session) === targetSession);
+      const idx = list.findIndex(
+        r => r.date === normalizedReport.date && normalizeSession(r.session) === targetSession
+      );
       if (idx >= 0) {
         list[idx] = normalizedReport;
       } else {
         list.push(normalizedReport);
       }
       localStorage.setItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS, JSON.stringify(list));
+
+      // Đồng bộ bền vững lên server JSON & Supabase
+      this.postToServer('/api/reports/daily-official', normalizedReport);
+      supabaseService.saveDailyOfficialReportToSupabase(normalizedReport);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
     } catch {
       // ignore
     }
@@ -2014,6 +2058,206 @@ class StorageService {
       return list.find(r => r.date === date && normalizeSession(r.session) === norm) || null;
     } catch {
       return null;
+    }
+  }
+
+  public getAllDailyOfficialReports(): SchoolDailyReport[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
+      const list: SchoolDailyReport[] = raw ? JSON.parse(raw) : [];
+      return list.sort((a, b) => b.date.localeCompare(a.date));
+    } catch {
+      return [];
+    }
+  }
+
+  public deleteDailyOfficialReport(id: string): boolean {
+    try {
+      const list = this.getAllDailyOfficialReports();
+      const filtered = list.filter(r => r.id !== id);
+      if (filtered.length === list.length) return false;
+      localStorage.setItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS, JSON.stringify(filtered));
+      this.deleteFromServer(`/api/reports/daily-official/${encodeURIComponent(id)}`);
+      supabaseService.deleteDailyOfficialReportFromSupabase(id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // PERIOD REPORTS (TUẦN, THÁNG, HỌC KỲ, NĂM HỌC)
+  public getPeriodReports(periodType?: SavedReportPeriodType): SavedPeriodReport[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEYS.PERIOD_REPORTS);
+      const list: SavedPeriodReport[] = raw ? JSON.parse(raw) : [];
+      const sorted = [...list].sort((a, b) => (b.updatedAt || b.savedAt || '').localeCompare(a.updatedAt || a.savedAt || ''));
+      if (periodType) {
+        return sorted.filter(r => r.periodType === periodType);
+      }
+      return sorted;
+    } catch {
+      return [];
+    }
+  }
+
+  public getPeriodReportByKey(periodKey: string): SavedPeriodReport | null {
+    try {
+      const list = this.getPeriodReports();
+      return list.find(r => r.periodKey === periodKey) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  public savePeriodReport(report: SavedPeriodReport) {
+    try {
+      const list = this.getPeriodReports();
+      const normSession = normalizeSession(report.session);
+      const normalized: SavedPeriodReport = {
+        ...report,
+        session: normSession,
+      };
+      const idx = list.findIndex(r => r.id === normalized.id || r.periodKey === normalized.periodKey);
+      if (idx >= 0) {
+        list[idx] = normalized;
+      } else {
+        list.unshift(normalized);
+      }
+      localStorage.setItem(STORAGE_KEYS.PERIOD_REPORTS, JSON.stringify(list));
+
+      // Đồng bộ bền vững lên Server backend & Supabase
+      this.postToServer('/api/reports/period', normalized);
+      supabaseService.savePeriodReportToSupabase(normalized);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  public deletePeriodReport(id: string): boolean {
+    try {
+      const list = this.getPeriodReports();
+      const filtered = list.filter(r => r.id !== id);
+      if (filtered.length === list.length) return false;
+      localStorage.setItem(STORAGE_KEYS.PERIOD_REPORTS, JSON.stringify(filtered));
+      this.deleteFromServer(`/api/reports/period/${encodeURIComponent(id)}`);
+      supabaseService.deletePeriodReportFromSupabase(id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Đồng bộ hai chiều với Server Backend JSON Store (/api/reports/saved)
+   * Đảm bảo các báo cáo Ngày, Tuần, Tháng, Học kỳ, Năm học đã lưu không bao giờ bị mất
+   */
+  public async syncFromServer(): Promise<void> {
+    if (typeof fetch === 'undefined') return;
+    try {
+      const res = await fetch('/api/reports/saved');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data) return;
+
+      let changed = false;
+
+      // 1. Hợp nhất Daily Official Reports
+      const serverDaily: SchoolDailyReport[] = Array.isArray(data.dailyOfficialReports) ? data.dailyOfficialReports : [];
+      const localDaily = this.getAllDailyOfficialReports();
+      const dailyMap = new Map<string, SchoolDailyReport>();
+      for (const item of localDaily) {
+        dailyMap.set(`${item.date}_${normalizeSession(item.session)}`, item);
+      }
+      for (const item of serverDaily) {
+        const key = `${item.date}_${normalizeSession(item.session)}`;
+        const existing = dailyMap.get(key);
+        if (
+          !existing ||
+          (item.reportVersion || 1) > (existing.reportVersion || 1) ||
+          (item.updatedAt || '') > (existing.updatedAt || '')
+        ) {
+          dailyMap.set(key, item);
+          changed = true;
+        }
+      }
+      const mergedDaily = Array.from(dailyMap.values());
+      if (mergedDaily.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS, JSON.stringify(mergedDaily));
+        // Đẩy ngược các báo cáo chỉ có ở local lên server
+        const serverDailyKeys = new Set(serverDaily.map(d => `${d.date}_${normalizeSession(d.session)}`));
+        for (const item of mergedDaily) {
+          const k = `${item.date}_${normalizeSession(item.session)}`;
+          const srv = serverDaily.find(d => `${d.date}_${normalizeSession(d.session)}` === k);
+          if (!serverDailyKeys.has(k) || (srv && (item.reportVersion || 1) > (srv.reportVersion || 1))) {
+            this.postToServer('/api/reports/daily-official', item);
+          }
+        }
+      }
+
+      // 2. Hợp nhất Period Reports (Tuần, Tháng, Học kỳ, Năm học)
+      const serverPeriod: SavedPeriodReport[] = Array.isArray(data.periodReports) ? data.periodReports : [];
+      const localPeriod = this.getPeriodReports();
+      const periodMap = new Map<string, SavedPeriodReport>();
+      for (const item of localPeriod) {
+        periodMap.set(item.periodKey || item.id, item);
+      }
+      for (const item of serverPeriod) {
+        const key = item.periodKey || item.id;
+        const existing = periodMap.get(key);
+        if (
+          !existing ||
+          (item.reportVersion || 1) > (existing.reportVersion || 1) ||
+          (item.updatedAt || '') > (existing.updatedAt || '')
+        ) {
+          periodMap.set(key, item);
+          changed = true;
+        }
+      }
+      const mergedPeriod = Array.from(periodMap.values());
+      if (mergedPeriod.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.PERIOD_REPORTS, JSON.stringify(mergedPeriod));
+        for (const item of mergedPeriod) {
+          const srv = serverPeriod.find(p => (p.periodKey || p.id) === (item.periodKey || item.id));
+          if (!srv || (item.reportVersion || 1) > (srv.reportVersion || 1)) {
+            this.postToServer('/api/reports/period', item);
+          }
+        }
+      }
+
+      // 3. Hợp nhất Attendance Reports
+      const serverAtt: AttendanceReport[] = Array.isArray(data.attendanceReports) ? data.attendanceReports : [];
+      if (serverAtt.length > 0) {
+        const localAtt = this.getReports();
+        const attMap = new Map<string, AttendanceReport>();
+        const getKey = (r: AttendanceReport) =>
+          `${r.date}_${(r.classId || r.className || '').toLowerCase()}_${normalizeSession(r.session)}`;
+        for (const r of localAtt) attMap.set(getKey(r), r);
+        for (const r of serverAtt) {
+          const k = getKey(r);
+          const existing = attMap.get(k);
+          if (!existing || (r.updatedAt || '') > (existing.updatedAt || '')) {
+            attMap.set(k, r);
+            changed = true;
+          }
+        }
+        localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(Array.from(attMap.values())));
+      }
+
+      if (changed && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -2092,6 +2336,8 @@ class StorageService {
       classes: this.getClasses(),
       students: this.getStudents(),
       reports: this.getReports(),
+      dailyOfficialReports: this.getAllDailyOfficialReports(),
+      periodReports: this.getPeriodReports(),
       settings: this.getSettings(),
       auditLogs: this.getAuditLogs(),
     };
@@ -2109,11 +2355,20 @@ class StorageService {
       if (parsed.classes) localStorage.setItem(STORAGE_KEYS.CLASSES, JSON.stringify(parsed.classes));
       if (parsed.students) localStorage.setItem(STORAGE_KEYS.STUDENTS, JSON.stringify(parsed.students));
       if (parsed.reports) localStorage.setItem(STORAGE_KEYS.REPORTS, JSON.stringify(parsed.reports));
+      if (parsed.dailyOfficialReports) {
+        localStorage.setItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS, JSON.stringify(parsed.dailyOfficialReports));
+      }
+      if (parsed.periodReports) {
+        localStorage.setItem(STORAGE_KEYS.PERIOD_REPORTS, JSON.stringify(parsed.periodReports));
+      }
       if (parsed.settings) localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(parsed.settings));
       if (parsed.auditLogs) localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(parsed.auditLogs));
 
       localStorage.setItem(STORAGE_KEYS.LAST_BACKUP, new Date().toISOString());
       this.addAuditLog('QUẢN TRỊ VIÊN', 'Khôi phục hệ thống từ tệp sao lưu JSON', 'settings', 'KHÔI PHỤC');
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+      }
       return { success: true, message: 'Khôi phục dữ liệu thành công!' };
     } catch (e) {
       return { success: false, message: `Lỗi đọc dữ liệu: ${(e as Error).message}` };

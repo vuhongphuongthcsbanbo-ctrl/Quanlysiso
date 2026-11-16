@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
 import { attendanceService, SchoolDashboardStats, GradeSummary } from '../services/attendanceService';
+import { dailyReportService } from '../services/dailyReportService';
 import { exportService } from '../services/exportService';
 import { formatFullVietnameseDate, getTodayDateString } from '../utils/formatters';
 import { PageId } from '../components/common/Sidebar';
@@ -252,7 +253,12 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({
 
   // Finalize school attendance (Mục 1, 18)
   const handleFinalizeSchool = () => {
-    storageService.lockAllReportsForDate(currentDate, filterSession, currentUser?.name || 'Phạm Ngọc Thúy');
+    dailyReportService.finalizeDailyReport(
+      currentDate,
+      filterSession,
+      currentUser?.name || 'Phạm Ngọc Thúy',
+      currentUser?.title || 'Tổng Phụ trách Đội'
+    );
     setIsFinalizeModalOpen(false);
   };
 
