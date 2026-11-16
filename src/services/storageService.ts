@@ -107,6 +107,22 @@ export function isBlacklistedStudent(item: any): boolean {
 
 class StorageService {
   private initialized = false;
+  private onAttendanceChangedHook?: (date: string, session: SessionType, actorName?: string) => void;
+
+  public registerAttendanceAutoSaveHook(
+    fn: (date: string, session: SessionType, actorName?: string) => void
+  ) {
+    this.onAttendanceChangedHook = fn;
+  }
+
+  private triggerAttendanceAutoSave(date: string, session: SessionType, actorName?: string) {
+    if (!this.onAttendanceChangedHook) return;
+    try {
+      this.onAttendanceChangedHook(date, session, actorName);
+    } catch {
+      // ignore
+    }
+  }
 
   constructor() {
     this.init();
@@ -1752,6 +1768,11 @@ class StorageService {
     // Đồng bộ tức thời lên Supabase và Server backend ở chế độ nền
     supabaseService.saveReportToSupabase(normalizedReport);
     this.postToServer('/api/reports/attendance-sync', { report: normalizedReport });
+    this.triggerAttendanceAutoSave(
+      normalizedReport.date,
+      targetSession,
+      normalizedReport.approvedBy || normalizedReport.submittedBy || normalizedReport.teacherName
+    );
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
     }
@@ -1805,6 +1826,7 @@ class StorageService {
       'attendance',
       'DUYỆT BÁO CÁO'
     );
+    this.triggerAttendanceAutoSave(report.date, report.session, approvedBy);
     window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
     return true;
   }
@@ -1863,6 +1885,16 @@ class StorageService {
         'attendance',
         'DUYỆT HÀNG LOẠT'
       );
+      const uniqueDateSessions = new Map<string, { date: string; session: SessionType }>();
+      reports
+        .filter(r => reportIds.includes(r.id))
+        .forEach(r => {
+          const ns = normalizeSession(r.session);
+          uniqueDateSessions.set(`${r.date}_${ns}`, { date: r.date, session: ns });
+        });
+      uniqueDateSessions.forEach(({ date, session }) => {
+        this.triggerAttendanceAutoSave(date, session, approvedBy);
+      });
       window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
     }
     return count;
@@ -1958,6 +1990,10 @@ class StorageService {
       'attendance',
       'MỞ KHÓA BÁO CÁO'
     );
+    this.triggerAttendanceAutoSave(report.date, report.session, unlockedBy);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
+    }
     return true;
   }
 
@@ -1996,6 +2032,7 @@ class StorageService {
       'admin_tpt',
       norm
     );
+    this.triggerAttendanceAutoSave(date, norm, lockedBy);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
     }
@@ -2018,7 +2055,7 @@ class StorageService {
   }
 
   // OFFICIAL DAILY REPORT (Section XLVI)
-  public saveDailyOfficialReport(report: SchoolDailyReport) {
+  public saveDailyOfficialReport(report: SchoolDailyReport, options?: { silent?: boolean }) {
     try {
       const raw = localStorage.getItem(STORAGE_KEYS.DAILY_OFFICIAL_REPORTS);
       const list: SchoolDailyReport[] = raw ? JSON.parse(raw) : [];
@@ -2042,7 +2079,7 @@ class StorageService {
       this.postToServer('/api/reports/daily-official', normalizedReport);
       supabaseService.saveDailyOfficialReportToSupabase(normalizedReport);
 
-      if (typeof window !== 'undefined') {
+      if (!options?.silent && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
       }
     } catch {
@@ -2112,7 +2149,7 @@ class StorageService {
     }
   }
 
-  public savePeriodReport(report: SavedPeriodReport) {
+  public savePeriodReport(report: SavedPeriodReport, options?: { silent?: boolean }) {
     try {
       const list = this.getPeriodReports();
       const normSession = normalizeSession(report.session);
@@ -2132,7 +2169,7 @@ class StorageService {
       this.postToServer('/api/reports/period', normalized);
       supabaseService.savePeriodReportToSupabase(normalized);
 
-      if (typeof window !== 'undefined') {
+      if (!options?.silent && typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
       }
     } catch {

@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { weeklyReportService } from '../../services/weeklyReportService';
 import { storageService } from '../../services/storageService';
 import { periodReportService } from '../../services/periodReportService';
+import { calculatePercentage } from '../../services/reportCalculationService';
 import { SessionType, getSessionDisplayName } from '../../types';
 import { getTodayDateString } from '../../utils/formatters';
 import {
@@ -14,6 +15,7 @@ import {
   Unlock,
   Clock,
   History,
+  Sparkles,
 } from 'lucide-react';
 
 interface WeeklyAttendanceReportViewProps {
@@ -37,12 +39,14 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
     !!currentUser?.permissions?.canFinalizeAttendance ||
     !!currentUser?.permissions?.canExportSchoolReports;
 
+  const settings = storageService.getSettings();
+
   const initialRange = useMemo(
     () =>
       initialStartDate && initialEndDate
         ? { startDate: initialStartDate, endDate: initialEndDate }
-        : weeklyReportService.getWeekRange(currentDate),
-    [currentDate, initialStartDate, initialEndDate]
+        : weeklyReportService.getWeekRange(currentDate, !!settings.enableSaturday),
+    [currentDate, initialStartDate, initialEndDate, settings.enableSaturday]
   );
 
   const [startDate, setStartDate] = useState(initialRange.startDate);
@@ -56,8 +60,12 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
     if (initialStartDate && initialEndDate) {
       setStartDate(initialStartDate);
       setEndDate(initialEndDate);
+    } else if (currentDate) {
+      const range = weeklyReportService.getWeekRange(currentDate, !!settings.enableSaturday);
+      setStartDate(range.startDate);
+      setEndDate(range.endDate);
     }
-  }, [initialStartDate, initialEndDate]);
+  }, [initialStartDate, initialEndDate, currentDate, settings.enableSaturday]);
 
   useEffect(() => {
     const onChanged = () => setRefreshTick(t => t + 1);
@@ -70,6 +78,16 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
       window.removeEventListener('thcs_banbo_classes_changed', onChanged);
     };
   }, []);
+
+  // Tự động lưu báo cáo tuần khi có dữ liệu mới
+  useEffect(() => {
+    periodReportService.autoSaveWeeklyReport(
+      startDate,
+      endDate,
+      session,
+      currentUser?.name || settings.adminName || 'Hệ thống tự động'
+    );
+  }, [startDate, endDate, session, refreshTick, currentUser?.name, settings.adminName]);
 
   const periodKey = useMemo(
     () => periodReportService.getWeeklyPeriodKey(startDate, endDate, session),
@@ -92,13 +110,14 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
 
   const activeData = useMemo(() => {
     if (viewMode === 'SAVED' && savedSnapshot) {
+      const expected = savedSnapshot.totalExpectedSessions;
       return {
         weekLabel: `Từ ${savedSnapshot.startDate} đến ${savedSnapshot.endDate}`,
         startDate: savedSnapshot.startDate,
         endDate: savedSnapshot.endDate,
         schoolDaysCount: savedSnapshot.schoolDaysCount,
         totalStudentsRoster: savedSnapshot.totalStudentsRoster,
-        totalExpectedSessions: savedSnapshot.totalExpectedSessions,
+        totalExpectedSessions: expected,
         totalPresentSessions: savedSnapshot.totalPresentSessions,
         totalAbsentSessions: savedSnapshot.totalAbsentSessions,
         totalExcusedSessions: savedSnapshot.totalExcusedSessions,
@@ -106,6 +125,18 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
         totalLateCount: savedSnapshot.totalLateCount,
         totalEarlyLeaveCount: savedSnapshot.totalEarlyLeaveCount,
         attendanceRate: savedSnapshot.attendanceRate,
+        absentRate:
+          savedSnapshot.absentRate ??
+          calculatePercentage(savedSnapshot.totalAbsentSessions, expected),
+        excusedRate:
+          savedSnapshot.excusedRate ??
+          calculatePercentage(savedSnapshot.totalExcusedSessions, expected),
+        unexcusedRate:
+          savedSnapshot.unexcusedRate ??
+          calculatePercentage(savedSnapshot.totalUnexcusedSessions, expected),
+        lateRate:
+          savedSnapshot.lateRate ??
+          calculatePercentage(savedSnapshot.totalLateCount, expected),
         classStats: savedSnapshot.classStats || [],
         daysBreakdown: savedSnapshot.daysBreakdown || [],
       };
@@ -114,13 +145,13 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
   }, [viewMode, savedSnapshot, weeklyData]);
 
   const handleSaveWeekly = (lockAfterSave: boolean = false) => {
-    const settings = storageService.getSettings();
+    const curSettings = storageService.getSettings();
     const saved = periodReportService.saveWeeklyReport(
       startDate,
       endDate,
       session,
-      currentUser?.name || settings.adminName || 'Quản trị viên',
-      currentUser?.title || settings.adminTitle || 'Tổng Phụ trách Đội',
+      currentUser?.name || curSettings.adminName || 'Quản trị viên',
+      currentUser?.title || curSettings.adminTitle || 'Tổng Phụ trách Đội',
       {
         notes: saveNotes.trim() || undefined,
         lock: lockAfterSave,
@@ -135,11 +166,11 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
 
   const handleToggleLock = () => {
     if (!savedSnapshot) return;
-    const settings = storageService.getSettings();
+    const curSettings = storageService.getSettings();
     const updated = periodReportService.toggleLockPeriodReport(
       savedSnapshot.periodKey,
       savedSnapshot.status !== 'LOCKED',
-      currentUser?.name || settings.adminName || 'Quản trị viên'
+      currentUser?.name || curSettings.adminName || 'Quản trị viên'
     );
     if (updated) {
       setSaveBanner(
@@ -157,7 +188,7 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    const range = weeklyReportService.getWeekRange(`${y}-${m}-${day}`);
+    const range = weeklyReportService.getWeekRange(`${y}-${m}-${day}`, !!settings.enableSaturday);
     setStartDate(range.startDate);
     setEndDate(range.endDate);
   };
@@ -168,13 +199,13 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    const range = weeklyReportService.getWeekRange(`${y}-${m}-${day}`);
+    const range = weeklyReportService.getWeekRange(`${y}-${m}-${day}`, !!settings.enableSaturday);
     setStartDate(range.startDate);
     setEndDate(range.endDate);
   };
 
   const handleCurrentWeek = () => {
-    const range = weeklyReportService.getWeekRange(getTodayDateString());
+    const range = weeklyReportService.getWeekRange(getTodayDateString(), !!settings.enableSaturday);
     setStartDate(range.startDate);
     setEndDate(range.endDate);
   };
@@ -194,22 +225,31 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
                   className={`text-xs font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
                     savedSnapshot.status === 'LOCKED'
                       ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      : savedSnapshot.isAutoSaved
+                      ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
                       : 'bg-blue-100 text-blue-900 border border-blue-300'
                   }`}
                 >
                   {savedSnapshot.status === 'LOCKED' ? (
                     <Lock className="w-3 h-3" />
+                  ) : savedSnapshot.isAutoSaved ? (
+                    <Sparkles className="w-3 h-3" />
                   ) : (
                     <CheckCircle2 className="w-3 h-3" />
                   )}
                   <span>
-                    {savedSnapshot.status === 'LOCKED' ? 'Đã chốt khóa' : 'Đã lưu kho'} (v{savedSnapshot.reportVersion})
+                    {savedSnapshot.status === 'LOCKED'
+                      ? 'Đã chốt khóa'
+                      : savedSnapshot.isAutoSaved
+                      ? 'Tự động lưu'
+                      : 'Đã lưu kho'}{' '}
+                    (v{savedSnapshot.reportVersion})
                   </span>
                 </span>
               ) : (
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span>Chưa lưu vào kho</span>
+                  <span>Chưa phát sinh dữ liệu duyệt tuần này</span>
                 </span>
               )}
             </div>
@@ -341,11 +381,11 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
       </div>
 
       {/* KPI Cards (Mục XIV) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="text-[11px] font-bold text-slate-500 uppercase">Số ngày học</div>
           <div className="text-2xl font-black text-slate-900 mt-1">{activeData.schoolDaysCount}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">Loại trừ ngày nghỉ/lễ</div>
+          <div className="text-[10px] text-slate-400 mt-0.5">Sĩ số trường: {activeData.totalStudentsRoster} HS</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-xs bg-emerald-50/20">
@@ -356,25 +396,47 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
 
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="text-[11px] font-bold text-slate-500 uppercase">Lượt có mặt</div>
-          <div className="text-2xl font-black text-blue-900 mt-1">{activeData.totalPresentSessions}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">lượt học sinh</div>
+          <div className="text-2xl font-black text-blue-900 mt-1">
+            {activeData.totalPresentSessions}
+            <span className="text-xs font-extrabold text-blue-700 ml-1">
+              ({activeData.attendanceRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">trên tổng {activeData.totalExpectedSessions} lượt</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-rose-200 shadow-xs bg-rose-50/20">
           <div className="text-[11px] font-bold text-rose-800 uppercase">Tổng lượt vắng</div>
-          <div className="text-2xl font-black text-rose-950 mt-1">{activeData.totalAbsentSessions}</div>
-          <div className="text-[10px] text-rose-700 mt-0.5">Có phép: {activeData.totalExcusedSessions} · K.Phép: {activeData.totalUnexcusedSessions}</div>
+          <div className="text-2xl font-black text-rose-950 mt-1">
+            {activeData.totalAbsentSessions}
+            <span className="text-xs font-extrabold text-rose-700 ml-1">
+              ({activeData.absentRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-rose-700 mt-0.5">
+            Phép: {activeData.totalExcusedSessions} ({activeData.excusedRate.toFixed(1)}%) · K.P: {activeData.totalUnexcusedSessions} ({activeData.unexcusedRate.toFixed(1)}%)
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-purple-200 shadow-xs">
           <div className="text-[11px] font-bold text-purple-800 uppercase">Đi học muộn</div>
-          <div className="text-2xl font-black text-purple-950 mt-1">{activeData.totalLateCount}</div>
+          <div className="text-2xl font-black text-purple-950 mt-1">
+            {activeData.totalLateCount}
+            <span className="text-xs font-extrabold text-purple-700 ml-1">
+              ({activeData.lateRate.toFixed(1)}%)
+            </span>
+          </div>
           <div className="text-[10px] text-purple-700 mt-0.5">lượt đi muộn</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-amber-200 shadow-xs">
           <div className="text-[11px] font-bold text-amber-800 uppercase">Về sớm</div>
-          <div className="text-2xl font-black text-amber-950 mt-1">{activeData.totalEarlyLeaveCount}</div>
+          <div className="text-2xl font-black text-amber-950 mt-1">
+            {activeData.totalEarlyLeaveCount}
+            <span className="text-xs font-extrabold text-amber-700 ml-1">
+              ({calculatePercentage(activeData.totalEarlyLeaveCount, activeData.totalExpectedSessions).toFixed(1)}%)
+            </span>
+          </div>
           <div className="text-[10px] text-amber-700 mt-0.5">lượt về sớm</div>
         </div>
       </div>
@@ -385,37 +447,46 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
           Diễn biến từng ngày trong tuần
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-          {activeData.daysBreakdown.map((day: any) => (
-            <div
-              key={day.date}
-              className={`p-3 rounded-xl border ${
-                day.isSchoolDay
-                  ? 'bg-slate-50 border-slate-200'
-                  : 'bg-slate-100/60 border-slate-200 opacity-60'
-              }`}
-            >
-              <div className="font-bold text-slate-900">{day.dayName}</div>
-              <div className="text-[10px] text-slate-500">{day.date}</div>
-              {day.isSchoolDay ? (
-                <div className="mt-2 space-y-0.5">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Có mặt:</span>
-                    <span className="font-bold text-emerald-800">{day.presentCount}</span>
+          {activeData.daysBreakdown.map((day: any) => {
+            const dayExpected = (day.presentCount || 0) + (day.absentCount || 0);
+            const dayAbsentRate =
+              day.absentRate ?? calculatePercentage(day.absentCount || 0, dayExpected || day.totalStudents || 0);
+            return (
+              <div
+                key={day.date}
+                className={`p-3 rounded-xl border ${
+                  day.isSchoolDay
+                    ? 'bg-slate-50 border-slate-200'
+                    : 'bg-slate-100/60 border-slate-200 opacity-60'
+                }`}
+              >
+                <div className="font-bold text-slate-900">{day.dayName}</div>
+                <div className="text-[10px] text-slate-500">{day.date}</div>
+                {day.isSchoolDay ? (
+                  <div className="mt-2 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Có mặt:</span>
+                      <span className="font-bold text-emerald-800">{day.presentCount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Vắng:</span>
+                      <span className="font-bold text-rose-800">{day.absentCount}</span>
+                    </div>
+                    <div className="flex justify-between pt-1 border-t border-slate-200">
+                      <span className="text-slate-500">% Có mặt:</span>
+                      <span className="font-bold text-blue-900">{Number(day.attendanceRate || 0).toFixed(1)}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">% Vắng:</span>
+                      <span className="font-bold text-rose-700">{Number(dayAbsentRate).toFixed(1)}%</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Vắng:</span>
-                    <span className="font-bold text-rose-800">{day.absentCount}</span>
-                  </div>
-                  <div className="flex justify-between pt-1 border-t border-slate-200">
-                    <span className="text-slate-500">Tỉ lệ:</span>
-                    <span className="font-bold text-blue-900">{Number(day.attendanceRate || 0).toFixed(1)}%</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-[11px] text-slate-400 italic mt-2">Ngày nghỉ / không học</div>
-              )}
-            </div>
-          ))}
+                ) : (
+                  <div className="text-[11px] text-slate-400 italic mt-2">Ngày nghỉ / không học</div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -423,7 +494,7 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h4 className="text-sm font-bold text-slate-900 uppercase">
-            THỐNG KÊ THEO 20 LỚP TRONG TUẦN
+            THỐNG KÊ THEO {activeData.classStats.length} LỚP TRONG TUẦN
           </h4>
           <span className="text-xs text-slate-500">
             Công thức: Lượt có mặt / Tổng lượt dự kiến × 100
@@ -443,30 +514,53 @@ export const WeeklyAttendanceReportView: React.FC<WeeklyAttendanceReportViewProp
                 <th className="p-3 text-center">Có phép</th>
                 <th className="p-3 text-center">Không phép</th>
                 <th className="p-3 text-center">Đi muộn</th>
-                <th className="p-3 text-center">Tỉ lệ chuyên cần</th>
+                <th className="p-3 text-center">% Có mặt</th>
+                <th className="p-3 text-center">% Vắng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {activeData.classStats.map((c: any) => (
-                <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-bold text-slate-900">{c.className}</td>
-                  <td className="p-3 text-slate-700">{c.teacherName}</td>
-                  <td className="p-3 text-center font-medium text-slate-800">{c.averageStudentCount}</td>
-                  <td className="p-3 text-center text-slate-600">{c.schoolDaysCount}</td>
-                  <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
-                  <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
-                  <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
-                  <td className="p-3 text-center font-extrabold text-blue-900">
-                    {Number(c.attendanceRate || 0).toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
+              {activeData.classStats.map((c: any) => {
+                const cAbsentRate =
+                  c.absentRate ?? calculatePercentage(c.absentSessions || 0, c.expectedSessions || 0);
+                return (
+                  <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-bold text-slate-900">{c.className}</td>
+                    <td className="p-3 text-slate-700">{c.teacherName}</td>
+                    <td className="p-3 text-center font-medium text-slate-800">{c.averageStudentCount}</td>
+                    <td className="p-3 text-center text-slate-600">{c.schoolDaysCount}</td>
+                    <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
+                    <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
+                    <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
+                    <td className="p-3 text-center font-extrabold text-blue-900">
+                      {Number(c.attendanceRate || 0).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-center font-bold text-rose-700">
+                      {Number(cAbsentRate).toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-black text-slate-900">
+                <td className="p-3" colSpan={2}>TỔNG CỘNG TOÀN TRƯỜNG</td>
+                <td className="p-3 text-center">{activeData.totalStudentsRoster} HS</td>
+                <td className="p-3 text-center">{activeData.schoolDaysCount} ngày</td>
+                <td className="p-3 text-center text-emerald-800">{activeData.totalPresentSessions}</td>
+                <td className="p-3 text-center text-rose-800">{activeData.totalAbsentSessions}</td>
+                <td className="p-3 text-center">{activeData.totalExcusedSessions}</td>
+                <td className="p-3 text-center">{activeData.totalUnexcusedSessions}</td>
+                <td className="p-3 text-center text-purple-800">{activeData.totalLateCount}</td>
+                <td className="p-3 text-center text-blue-900">{activeData.attendanceRate.toFixed(1)}%</td>
+                <td className="p-3 text-center text-rose-700">{activeData.absentRate.toFixed(1)}%</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
     </div>
   );
 };
+

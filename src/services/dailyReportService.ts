@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { storageService } from './storageService';
 import { attendanceService } from './attendanceService';
-import { calculateAttendanceRate, filterApprovedReports } from './reportCalculationService';
+import { calculateAttendanceRate, calculatePercentage, filterApprovedReports } from './reportCalculationService';
 import { formatVietnameseDate, getTodayDateString } from '../utils/formatters';
 
 export interface DailyClassRow {
@@ -34,6 +34,10 @@ export interface DailyClassRow {
   nonBoardingTotal: number;
   nonBoardingPresent: number | string;
   nonBoardingAbsent: number | string;
+  attendanceRate: number;
+  absentRate: number;
+  boardingRate: number;
+  nonBoardingRate: number;
   status: ReportStatus;
   statusText: string;
   isApproved: boolean;
@@ -59,6 +63,10 @@ export interface GradeGroupSummary {
   nonBoardingPresent: number;
   nonBoardingAbsent: number;
   attendanceRate: number;
+  absentRate: number;
+  boardingRate: number;
+  nonBoardingRate: number;
+  approvedClassesRate: number;
   approvedClassesCount: number;
   totalClassesCount: number;
 }
@@ -174,6 +182,7 @@ class DailyReportService {
       const clsBoardingTotal = rep?.boardingTotal ?? clsStudents.filter(s => s.boardingType === 'BOARDING').length;
       const clsNonBoardingTotal = rep?.nonBoardingTotal ?? clsStudents.filter(s => s.boardingType === 'NON_BOARDING').length;
       const clsTotalStudents = rep?.totalStudents ?? clsStudents.length;
+      const clsNbPresent = rep?.nonBoardingPresent ?? rep?.dayPresent ?? 0;
 
       classRows.push({
         stt: idx + 1,
@@ -193,8 +202,12 @@ class DailyReportService {
         boardingPresent: isApproved ? rep.boardingPresent : '--',
         boardingAbsent: isApproved ? rep.boardingAbsent : '--',
         nonBoardingTotal: clsNonBoardingTotal,
-        nonBoardingPresent: isApproved ? (rep.nonBoardingPresent ?? rep.dayPresent ?? 0) : '--',
+        nonBoardingPresent: isApproved ? clsNbPresent : '--',
         nonBoardingAbsent: isApproved ? (rep.nonBoardingAbsent ?? rep.dayAbsent ?? 0) : '--',
+        attendanceRate: isApproved ? calculateAttendanceRate(clsTotalStudents, rep.presentCount) : 0,
+        absentRate: isApproved ? calculatePercentage(rep.absentCount, clsTotalStudents) : 0,
+        boardingRate: isApproved ? calculatePercentage(rep.boardingPresent, clsBoardingTotal) : 0,
+        nonBoardingRate: isApproved ? calculatePercentage(clsNbPresent, clsNonBoardingTotal) : 0,
         status: rep?.status || 'NOT_SUBMITTED',
         statusText,
         isApproved,
@@ -225,8 +238,15 @@ class DailyReportService {
     }
 
     const attendanceRate = calculateAttendanceRate(confirmedStudents, presentCount);
-    const boardingRate = boardingConfirmed > 0 ? (boardingPresent / boardingConfirmed) * 100 : 100;
-    const nonBoardingRate = nonBoardingConfirmed > 0 ? (nonBoardingPresent / nonBoardingConfirmed) * 100 : 100;
+    const absentRate = calculatePercentage(absentCount, confirmedStudents);
+    const excusedRate = calculatePercentage(excusedAbsentCount, confirmedStudents);
+    const unexcusedRate = calculatePercentage(unexcusedAbsentCount, confirmedStudents);
+    const lateRate = calculatePercentage(lateCount, confirmedStudents);
+    const earlyLeaveRate = calculatePercentage(earlyLeaveCount, confirmedStudents);
+    const boardingRate = calculatePercentage(boardingPresent, boardingConfirmed);
+    const nonBoardingRate = calculatePercentage(nonBoardingPresent, nonBoardingConfirmed);
+    const approvedClassesRate = calculatePercentage(approvedCount, classes.length);
+    const submittedClassesRate = calculatePercentage(submittedCount, classes.length);
 
     // Group by grades 6, 7, 8, 9
     const gradesList = [6, 7, 8, 9];
@@ -237,9 +257,11 @@ class DailyReportService {
       let gPresent = 0;
       let gAbsent = 0;
       let gBoardingTotal = 0;
+      let gBoardingConfirmed = 0;
       let gBoardingPresent = 0;
       let gBoardingAbsent = 0;
       let gNonBoardingTotal = 0;
+      let gNonBoardingConfirmed = 0;
       let gNonBoardingPresent = 0;
       let gNonBoardingAbsent = 0;
       let gApprovedCount = 0;
@@ -252,8 +274,10 @@ class DailyReportService {
           gConfirmed += c.totalStudents;
           gPresent += typeof c.presentCount === 'number' ? c.presentCount : 0;
           gAbsent += typeof c.absentCount === 'number' ? c.absentCount : 0;
+          gBoardingConfirmed += c.boardingTotal;
           gBoardingPresent += typeof c.boardingPresent === 'number' ? c.boardingPresent : 0;
           gBoardingAbsent += typeof c.boardingAbsent === 'number' ? c.boardingAbsent : 0;
+          gNonBoardingConfirmed += c.nonBoardingTotal;
           gNonBoardingPresent += typeof c.nonBoardingPresent === 'number' ? c.nonBoardingPresent : 0;
           gNonBoardingAbsent += typeof c.nonBoardingAbsent === 'number' ? c.nonBoardingAbsent : 0;
         }
@@ -274,6 +298,10 @@ class DailyReportService {
         nonBoardingPresent: gNonBoardingPresent,
         nonBoardingAbsent: gNonBoardingAbsent,
         attendanceRate: calculateAttendanceRate(gConfirmed, gPresent),
+        absentRate: calculatePercentage(gAbsent, gConfirmed),
+        boardingRate: calculatePercentage(gBoardingPresent, gBoardingConfirmed),
+        nonBoardingRate: calculatePercentage(gNonBoardingPresent, gNonBoardingConfirmed),
+        approvedClassesRate: calculatePercentage(gApprovedCount, gClasses.length),
         approvedClassesCount: gApprovedCount,
         totalClassesCount: gClasses.length,
       };
@@ -313,6 +341,8 @@ class DailyReportService {
       totalClasses: classes.length,
       submittedClasses: submittedCount,
       approvedClasses: approvedCount,
+      approvedClassesRate,
+      submittedClassesRate,
       pendingClasses: pendingCount,
       revisionClasses: revisionCount,
       unsubmittedClassesCount: unsubmittedCount,
@@ -326,16 +356,21 @@ class DailyReportService {
       lateCount,
       earlyLeaveCount,
       attendanceRate,
+      absentRate,
+      excusedRate,
+      unexcusedRate,
+      lateRate,
+      earlyLeaveRate,
       boardingTotalRoster,
       boardingConfirmed,
       boardingPresent,
       boardingAbsent,
-      boardingRate: Math.round(boardingRate * 10) / 10,
+      boardingRate,
       nonBoardingTotalRoster,
       nonBoardingConfirmed,
       nonBoardingPresent,
       nonBoardingAbsent,
-      nonBoardingRate: Math.round(nonBoardingRate * 10) / 10,
+      nonBoardingRate,
       classRows,
       gradeGroups,
       absentRecords,
@@ -417,6 +452,11 @@ class DailyReportService {
       nonBoardingTotalSnapshot: reportData.nonBoardingTotalRoster,
       nonBoardingPresent: reportData.nonBoardingPresent,
       nonBoardingAbsent: reportData.nonBoardingAbsent,
+      attendanceRate: reportData.attendanceRate,
+      absentRate: reportData.absentRate,
+      boardingRate: reportData.boardingRate,
+      nonBoardingRate: reportData.nonBoardingRate,
+      isAutoSaved: false,
       finalizedAt: timestamp,
       finalizedBy: savedBy,
       finalizedByTitle: savedByTitle,
@@ -440,6 +480,8 @@ class DailyReportService {
         nonBoardingTotal: c.nonBoardingTotal,
         nonBoardingPresent: typeof c.nonBoardingPresent === 'number' ? c.nonBoardingPresent : 0,
         nonBoardingAbsent: typeof c.nonBoardingAbsent === 'number' ? c.nonBoardingAbsent : 0,
+        attendanceRate: c.attendanceRate,
+        absentRate: c.absentRate,
         status: c.status,
       })),
       createdAt: existing?.createdAt || timestamp,
@@ -450,7 +492,7 @@ class DailyReportService {
 
     storageService.addAuditLog(
       savedBy,
-      `Lưu báo cáo sĩ số ngày ${date} (${getSessionDisplayName(normSession)}) - Phiên bản v${newVersion} (Có mặt: ${snapshotReport.presentCount}/${snapshotReport.totalStudents})`,
+      `Lưu báo cáo sĩ số ngày ${date} (${getSessionDisplayName(normSession)}) - Phiên bản v${newVersion} (Có mặt: ${snapshotReport.presentCount}/${snapshotReport.confirmedStudents || snapshotReport.totalStudents} · ${reportData.attendanceRate.toFixed(1)}%)`,
       'report',
       `LƯU BÁO CÁO NGÀY v${newVersion}`,
       'admin_tpt',
@@ -460,6 +502,120 @@ class DailyReportService {
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('thcs_banbo_reports_changed'));
     }
+    return snapshotReport;
+  }
+
+  /**
+   * Tự động lưu snapshot báo cáo ngày khi có dữ liệu báo cáo lớp thay đổi.
+   * Không ghi đè báo cáo đã khóa chính thức (LOCKED), không tạo trùng phiên bản khi số liệu giữ nguyên.
+   */
+  public autoSaveDailySnapshot(
+    date: string,
+    session: SessionType = 'MORNING',
+    savedBy: string = 'Hệ thống tự động',
+    options?: { silent?: boolean }
+  ): SchoolDailyReport | null {
+    const normSession = normalizeSession(session);
+    const existing = storageService.getDailyOfficialReport(date, normSession);
+    if (existing?.reportStatus === 'LOCKED') return null;
+
+    const reportData = this.getDailyAttendanceReport(date, normSession);
+    if (!existing && reportData.submittedClasses === 0 && reportData.approvedClasses === 0) {
+      return null;
+    }
+
+    const isAllApproved = reportData.approvedClasses === reportData.totalClasses && reportData.totalClasses > 0;
+    const nextStatus: SchoolDailyReport['reportStatus'] = isAllApproved ? 'OFFICIAL' : 'PRELIMINARY';
+
+    if (
+      existing &&
+      existing.reportStatus === nextStatus &&
+      existing.totalStudents === reportData.totalStudentsRoster &&
+      existing.confirmedStudents === reportData.confirmedStudents &&
+      existing.presentCount === reportData.presentCount &&
+      existing.absentCount === reportData.absentCount &&
+      existing.excusedAbsentCount === reportData.excusedAbsentCount &&
+      existing.unexcusedAbsentCount === reportData.unexcusedAbsentCount &&
+      existing.lateCount === reportData.lateCount &&
+      existing.boardingPresent === reportData.boardingPresent &&
+      existing.nonBoardingPresent === reportData.nonBoardingPresent &&
+      existing.approvedClasses === reportData.approvedClasses &&
+      existing.submittedClasses === reportData.submittedClasses &&
+      existing.attendanceRate === reportData.attendanceRate
+    ) {
+      return null;
+    }
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+
+    const snapshotReport: SchoolDailyReport = {
+      id: existing?.id || `daily_${date}_${normSession}`,
+      date,
+      session: normSession,
+      schoolYearId: reportData.schoolYearId,
+      reportVersion: existing?.reportVersion || 1,
+      reportStatus: nextStatus,
+      totalClasses: reportData.totalClasses,
+      submittedClasses: reportData.submittedClasses,
+      approvedClasses: reportData.approvedClasses,
+      pendingClasses: reportData.pendingClasses,
+      unsubmittedClassesCount: reportData.unsubmittedClassesCount,
+      totalStudents: reportData.totalStudentsRoster,
+      totalStudentsSnapshot: reportData.totalStudentsRoster,
+      confirmedStudents: reportData.confirmedStudents,
+      presentCount: reportData.presentCount,
+      absentCount: reportData.absentCount,
+      excusedAbsentCount: reportData.excusedAbsentCount,
+      unexcusedAbsentCount: reportData.unexcusedAbsentCount,
+      lateCount: reportData.lateCount,
+      earlyLeaveCount: reportData.earlyLeaveCount,
+      boardingTotal: reportData.boardingTotalRoster,
+      boardingTotalSnapshot: reportData.boardingTotalRoster,
+      boardingPresent: reportData.boardingPresent,
+      boardingAbsent: reportData.boardingAbsent,
+      nonBoardingTotal: reportData.nonBoardingTotalRoster,
+      nonBoardingTotalSnapshot: reportData.nonBoardingTotalRoster,
+      nonBoardingPresent: reportData.nonBoardingPresent,
+      nonBoardingAbsent: reportData.nonBoardingAbsent,
+      attendanceRate: reportData.attendanceRate,
+      absentRate: reportData.absentRate,
+      boardingRate: reportData.boardingRate,
+      nonBoardingRate: reportData.nonBoardingRate,
+      isAutoSaved: true,
+      finalizedAt: timestamp,
+      finalizedBy: savedBy,
+      finalizedByTitle: existing?.finalizedByTitle || 'Tự động đồng bộ',
+      notes: existing?.notes,
+      unapprovedClassesList: reportData.unapprovedClasses,
+      versionHistory: existing?.versionHistory || [],
+      classesSnapshot: reportData.classRows.map(c => ({
+        classId: c.classId,
+        className: c.className,
+        grade: c.grade,
+        teacherName: c.teacherName,
+        totalStudents: c.totalStudents,
+        presentCount: typeof c.presentCount === 'number' ? c.presentCount : 0,
+        absentCount: typeof c.absentCount === 'number' ? c.absentCount : 0,
+        excusedAbsentCount: typeof c.excusedAbsentCount === 'number' ? c.excusedAbsentCount : 0,
+        unexcusedAbsentCount: typeof c.unexcusedAbsentCount === 'number' ? c.unexcusedAbsentCount : 0,
+        lateCount: typeof c.lateCount === 'number' ? c.lateCount : 0,
+        boardingTotal: c.boardingTotal,
+        boardingPresent: typeof c.boardingPresent === 'number' ? c.boardingPresent : 0,
+        boardingAbsent: typeof c.boardingAbsent === 'number' ? c.boardingAbsent : 0,
+        nonBoardingTotal: c.nonBoardingTotal,
+        nonBoardingPresent: typeof c.nonBoardingPresent === 'number' ? c.nonBoardingPresent : 0,
+        nonBoardingAbsent: typeof c.nonBoardingAbsent === 'number' ? c.nonBoardingAbsent : 0,
+        attendanceRate: c.attendanceRate,
+        absentRate: c.absentRate,
+        status: c.status,
+      })),
+      createdAt: existing?.createdAt || timestamp,
+      updatedAt: timestamp,
+    };
+
+    storageService.saveDailyOfficialReport(snapshotReport, { silent: options?.silent });
     return snapshotReport;
   }
 
@@ -527,6 +683,11 @@ class DailyReportService {
       nonBoardingTotalSnapshot: reportData.nonBoardingTotalRoster,
       nonBoardingPresent: reportData.nonBoardingPresent,
       nonBoardingAbsent: reportData.nonBoardingAbsent,
+      attendanceRate: reportData.attendanceRate,
+      absentRate: reportData.absentRate,
+      boardingRate: reportData.boardingRate,
+      nonBoardingRate: reportData.nonBoardingRate,
+      isAutoSaved: false,
       finalizedAt: timestamp,
       finalizedBy,
       finalizedByTitle,
@@ -550,6 +711,8 @@ class DailyReportService {
         nonBoardingTotal: c.nonBoardingTotal,
         nonBoardingPresent: typeof c.nonBoardingPresent === 'number' ? c.nonBoardingPresent : 0,
         nonBoardingAbsent: typeof c.nonBoardingAbsent === 'number' ? c.nonBoardingAbsent : 0,
+        attendanceRate: c.attendanceRate,
+        absentRate: c.absentRate,
         status: c.status,
       })),
       createdAt: existing?.createdAt || timestamp,
@@ -634,23 +797,22 @@ class DailyReportService {
   public generateQuickReportText(date: string = getTodayDateString(), session: SessionType = 'MORNING'): string {
     const rep = this.getDailyAttendanceReport(date, session);
     const unapproved = rep.unapprovedClasses;
+    const sessTitle = normalizeSession(session) === 'AFTERNOON' ? 'BUỔI CHIỀU' : 'BUỔI SÁNG';
 
     let text = `TRƯỜNG THCS BẢN BO
-BÁO CÁO SĨ SỐ BUỔI SÁNG NGÀY ${formatVietnameseDate(date).toUpperCase()}
+BÁO CÁO SĨ SỐ ${sessTitle} NGÀY ${formatVietnameseDate(date).toUpperCase()}
 ------------------------------------
-Tổng số HS: ${rep.totalStudentsRoster}
-Có mặt: ${rep.presentCount}
-Vắng: ${rep.absentCount}
-Có phép: ${rep.excusedAbsentCount}
-Không phép: ${rep.unexcusedAbsentCount}
-Đi muộn: ${rep.lateCount}
-Bán trú: ${rep.boardingPresent}/${rep.boardingTotalRoster} có mặt.
-Ngoại trú: ${rep.nonBoardingPresent}/${rep.nonBoardingTotalRoster} có mặt.
-Lớp đã báo cáo: ${rep.submittedClasses}/${rep.totalClasses}.
-Lớp đã duyệt: ${rep.approvedClasses}/${rep.totalClasses}.`;
+Tổng số HS toàn trường: ${rep.totalStudentsRoster} (Đã duyệt: ${rep.confirmedStudents} HS)
+Có mặt: ${rep.presentCount} (${rep.attendanceRate.toFixed(1)}%)
+Vắng: ${rep.absentCount} (${rep.absentRate.toFixed(1)}% - Có phép: ${rep.excusedAbsentCount}, Không phép: ${rep.unexcusedAbsentCount})
+Đi muộn: ${rep.lateCount} (${rep.lateRate.toFixed(1)}%)
+Bán trú: ${rep.boardingPresent}/${rep.boardingTotalRoster} có mặt (${rep.boardingRate.toFixed(1)}%)
+Ngoại trú: ${rep.nonBoardingPresent}/${rep.nonBoardingTotalRoster} có mặt (${rep.nonBoardingRate.toFixed(1)}%)
+Lớp đã báo cáo: ${rep.submittedClasses}/${rep.totalClasses} (${rep.submittedClassesRate.toFixed(1)}%)
+Lớp đã duyệt: ${rep.approvedClasses}/${rep.totalClasses} (${rep.approvedClassesRate.toFixed(1)}%)`;
 
     if (unapproved.length > 0) {
-      text += `\nCòn các lớp: ${unapproved.join(', ')}`;
+      text += `\nCòn các lớp chưa duyệt: ${unapproved.join(', ')}`;
     }
 
     text += `\n------------------------------------\nNgười lập: ${rep.finalizedBy} - ${rep.finalizedByTitle}`;

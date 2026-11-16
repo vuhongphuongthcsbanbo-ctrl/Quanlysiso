@@ -150,6 +150,20 @@ export function calculateAttendanceSummary(
 }
 
 /**
+ * Calculate percentage rounded to 1 decimal place (0.0 - 100.0)
+ * Returns emptyFallback (default 0) when denominator <= 0.
+ */
+export function calculatePercentage(
+  numerator: number,
+  denominator: number,
+  emptyFallback: number = 0
+): number {
+  if (denominator <= 0) return emptyFallback;
+  const rate = (numerator / denominator) * 100;
+  return Math.min(100, Math.max(0, Math.round(rate * 10) / 10));
+}
+
+/**
  * Centralized Attendance Rate Formula (Mục XVI, LXXXI)
  * expectedAttendanceSessions: tổng số lượt học sinh phải có mặt trong khoảng thời gian
  * presentAttendanceSessions: tổng số lượt được tính có mặt (bao gồm cả đi muộn, về sớm)
@@ -159,7 +173,7 @@ export function calculateAttendanceRate(
   expectedAttendanceSessions: number,
   presentAttendanceSessions: number
 ): number {
-  if (expectedAttendanceSessions <= 0) return 100;
+  if (expectedAttendanceSessions <= 0) return 0;
   const rate = (presentAttendanceSessions / expectedAttendanceSessions) * 100;
   return Math.min(100, Math.max(0, Math.round(rate * 10) / 10));
 }

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { storageService } from '../services/storageService';
 import { dailyReportService } from '../services/dailyReportService';
+import { periodReportService } from '../services/periodReportService';
 import { excelExportService } from '../../src/services/excelExportService';
 import { pdfExportService } from '../../src/services/pdfExportService';
 import { formatVietnameseDate, getTodayDateString } from '../utils/formatters';
@@ -99,6 +100,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
   const dailyReportContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    periodReportService.reconcileAllAutoSavedReports(currentUser?.name || settings.adminName || 'Hệ thống tự động');
     const onDataChanged = () => setRefreshTick(t => t + 1);
     window.addEventListener('thcs_banbo_reports_changed', onDataChanged);
     window.addEventListener('thcs_banbo_students_changed', onDataChanged);
@@ -109,6 +111,14 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
       window.removeEventListener('thcs_banbo_classes_changed', onDataChanged);
     };
   }, []);
+
+  useEffect(() => {
+    periodReportService.autoSaveAllForDate(
+      selectedDate,
+      selectedSession,
+      currentUser?.name || settings.adminName || 'Hệ thống tự động'
+    );
+  }, [selectedDate, selectedSession]);
 
   // Permission checks (Mục LXVI, LXVII)
   const canExportSchool =
@@ -498,7 +508,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
 
                 {dailyData.savedOfficial && (
                   <span className="text-xs font-bold text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-full">
-                    Đã lưu kho v{dailyData.savedOfficial.reportVersion || 1} · {dailyData.savedOfficial.finalizedAt || dailyData.savedOfficial.updatedAt}
+                    {dailyData.savedOfficial.isAutoSaved ? 'Tự động lưu' : 'Đã lưu kho'} (v{dailyData.savedOfficial.reportVersion || 1}) · {dailyData.savedOfficial.finalizedAt || dailyData.savedOfficial.updatedAt}
                   </span>
                 )}
               </div>
@@ -567,18 +577,22 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
             </div>
           </div>
 
-          {/* KPI Cards (Mục LXXV, LXXVI) with Click actions */}
+          {/* KPI Cards (Mục LXXV, LXXVI) with Click actions & full percentages */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 print:hidden">
             <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
               <div className="text-[11px] font-bold text-slate-500 uppercase">Tổng số HS</div>
               <div className="text-2xl font-black text-slate-900 mt-1">{dailyData.totalStudentsRoster}</div>
-              <div className="text-[10px] text-slate-400 mt-0.5">theo danh sách chính thức</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">
+                Đã duyệt: <strong>{dailyData.confirmedStudents}</strong> HS ({dailyData.totalStudentsRoster > 0 ? ((dailyData.confirmedStudents / dailyData.totalStudentsRoster) * 100).toFixed(1) : '0.0'}%)
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-xs bg-emerald-50/20">
               <div className="text-[11px] font-bold text-emerald-800 uppercase">Có mặt hôm nay</div>
               <div className="text-2xl font-black text-emerald-950 mt-1">{dailyData.presentCount}</div>
-              <div className="text-[10px] text-emerald-700 mt-0.5">Tỉ lệ: {dailyData.attendanceRate.toFixed(1)}%</div>
+              <div className="text-[10px] font-bold text-emerald-700 mt-0.5">
+                Tỉ lệ: {dailyData.attendanceRate.toFixed(1)}%
+              </div>
             </div>
 
             {/* Click Vắng -> chuyển sang tab Học sinh vắng */}
@@ -591,14 +605,24 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                 <span>Vắng hôm nay</span>
                 <ArrowRight className="w-3.5 h-3.5 text-rose-600" />
               </div>
-              <div className="text-2xl font-black text-rose-950 mt-1">{dailyData.absentCount}</div>
-              <div className="text-[10px] text-rose-700 mt-0.5">Phép: {dailyData.excusedAbsentCount} · K.Phép: {dailyData.unexcusedAbsentCount}</div>
+              <div className="text-2xl font-black text-rose-950 mt-1">
+                {dailyData.absentCount}{' '}
+                <span className="text-xs font-extrabold text-rose-700">({dailyData.absentRate.toFixed(1)}%)</span>
+              </div>
+              <div className="text-[10px] text-rose-700 mt-0.5">
+                Phép: {dailyData.excusedAbsentCount} ({dailyData.excusedRate.toFixed(1)}%) · K.P: {dailyData.unexcusedAbsentCount} ({dailyData.unexcusedRate.toFixed(1)}%)
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl p-4 border border-purple-200 shadow-xs">
               <div className="text-[11px] font-bold text-purple-800 uppercase">Đi học muộn</div>
-              <div className="text-2xl font-black text-purple-950 mt-1">{dailyData.lateCount}</div>
-              <div className="text-[10px] text-purple-700 mt-0.5">Về sớm: {dailyData.earlyLeaveCount}</div>
+              <div className="text-2xl font-black text-purple-950 mt-1">
+                {dailyData.lateCount}{' '}
+                <span className="text-xs font-extrabold text-purple-700">({dailyData.lateRate.toFixed(1)}%)</span>
+              </div>
+              <div className="text-[10px] text-purple-700 mt-0.5">
+                Về sớm: {dailyData.earlyLeaveCount} ({dailyData.earlyLeaveRate.toFixed(1)}%)
+              </div>
             </div>
 
             {/* Click Bán trú -> chuyển sang tab Bán trú */}
@@ -614,7 +638,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
               <div className="text-2xl font-black text-amber-950 mt-1">
                 {dailyData.boardingPresent}/{dailyData.boardingTotalRoster}
               </div>
-              <div className="text-[10px] text-amber-700 mt-0.5">Vắng: {dailyData.boardingAbsent} HS</div>
+              <div className="text-[10px] font-bold text-amber-700 mt-0.5">
+                Tỉ lệ: {dailyData.boardingRate.toFixed(1)}% · Vắng: {dailyData.boardingAbsent} HS
+              </div>
             </div>
 
             <div className="bg-white rounded-2xl p-4 border border-blue-200 shadow-xs">
@@ -622,7 +648,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
               <div className="text-2xl font-black text-blue-950 mt-1">
                 {dailyData.approvedClasses}/{dailyData.totalClasses}
               </div>
-              <div className="text-[10px] text-blue-700 mt-0.5">lớp hoàn thành</div>
+              <div className="text-[10px] font-bold text-blue-700 mt-0.5">
+                Đạt {dailyData.approvedClassesRate.toFixed(1)}% ({dailyData.submittedClasses} đã gửi)
+              </div>
             </div>
           </div>
 
@@ -701,6 +729,9 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                 <h4 className="text-sm font-bold text-slate-900 uppercase">
                   TỔNG HỢP THEO 4 KHỐI (KHỐI 6, 7, 8, 9)
                 </h4>
+                <span className="text-xs font-bold text-blue-700">
+                  Toàn trường: {dailyData.attendanceRate.toFixed(1)}% có mặt · {dailyData.absentRate.toFixed(1)}% vắng
+                </span>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
@@ -713,23 +744,50 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                       <th className="p-3 text-center">Vắng</th>
                       <th className="p-3 text-center">Bán trú</th>
                       <th className="p-3 text-center">Ngoại trú</th>
-                      <th className="p-3 text-center">Tỉ lệ chuyên cần</th>
+                      <th className="p-3 text-center">% Có mặt</th>
+                      <th className="p-3 text-center">% Vắng</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {dailyData.gradeGroups.map(g => (
                       <tr key={g.grade} className="hover:bg-slate-50 transition-colors">
                         <td className="p-3 font-bold text-slate-900">{g.gradeLabel}</td>
-                        <td className="p-3 text-center text-slate-600">{g.totalClassesCount} lớp</td>
+                        <td className="p-3 text-center text-slate-600">
+                          {g.approvedClassesCount}/{g.totalClassesCount} lớp
+                        </td>
                         <td className="p-3 text-center font-medium">{g.totalStudents}</td>
                         <td className="p-3 text-center font-bold text-emerald-800">{g.presentCount}</td>
                         <td className="p-3 text-center font-bold text-rose-800">{g.absentCount}</td>
-                        <td className="p-3 text-center text-slate-700">{g.boardingPresent}/{g.boardingTotal}</td>
-                        <td className="p-3 text-center text-slate-700">{g.nonBoardingPresent}/{g.nonBoardingTotal}</td>
+                        <td className="p-3 text-center text-slate-700">
+                          {g.boardingPresent}/{g.boardingTotal}{' '}
+                          <span className="text-[10px] text-slate-500">({g.boardingRate.toFixed(1)}%)</span>
+                        </td>
+                        <td className="p-3 text-center text-slate-700">
+                          {g.nonBoardingPresent}/{g.nonBoardingTotal}{' '}
+                          <span className="text-[10px] text-slate-500">({g.nonBoardingRate.toFixed(1)}%)</span>
+                        </td>
                         <td className="p-3 text-center font-extrabold text-blue-900">{g.attendanceRate.toFixed(1)}%</td>
+                        <td className="p-3 text-center font-bold text-rose-700">{g.absentRate.toFixed(1)}%</td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50/70 font-black text-slate-900 border-t-2 border-slate-200">
+                      <td className="p-3 uppercase">Tổng toàn trường</td>
+                      <td className="p-3 text-center">{dailyData.approvedClasses}/{dailyData.totalClasses} lớp</td>
+                      <td className="p-3 text-center">{dailyData.totalStudentsRoster}</td>
+                      <td className="p-3 text-center text-emerald-900">{dailyData.presentCount}</td>
+                      <td className="p-3 text-center text-rose-900">{dailyData.absentCount}</td>
+                      <td className="p-3 text-center">
+                        {dailyData.boardingPresent}/{dailyData.boardingTotalRoster} ({dailyData.boardingRate.toFixed(1)}%)
+                      </td>
+                      <td className="p-3 text-center">
+                        {dailyData.nonBoardingPresent}/{dailyData.nonBoardingTotalRoster} ({dailyData.nonBoardingRate.toFixed(1)}%)
+                      </td>
+                      <td className="p-3 text-center text-blue-900">{dailyData.attendanceRate.toFixed(1)}%</td>
+                      <td className="p-3 text-center text-rose-800">{dailyData.absentRate.toFixed(1)}%</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -741,7 +799,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                   BẢNG CHI TIẾT SĨ SỐ 20 LỚP (TRƯỜNG THCS BẢN BO)
                 </h4>
                 <span className="text-xs text-slate-500 font-bold hidden sm:inline">
-                  Đã duyệt: {dailyData.approvedClasses}/20 lớp
+                  Đã duyệt: {dailyData.approvedClasses}/{dailyData.totalClasses} lớp ({dailyData.approvedClassesRate.toFixed(1)}%)
                 </span>
               </div>
 
@@ -759,8 +817,10 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                       <th className="p-3 text-center">Có phép</th>
                       <th className="p-3 text-center">Không phép</th>
                       <th className="p-3 text-center">Đi muộn</th>
-                      <th className="p-3 text-center">Bán trú có mặt</th>
-                      <th className="p-3 text-center">Ngoại trú có mặt</th>
+                      <th className="p-3 text-center">Bán trú</th>
+                      <th className="p-3 text-center">Ngoại trú</th>
+                      <th className="p-3 text-center">% Có mặt</th>
+                      <th className="p-3 text-center">% Vắng</th>
                       <th className="p-3 text-center">Trạng thái</th>
                     </tr>
                   </thead>
@@ -779,6 +839,12 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                         <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
                         <td className="p-3 text-center text-slate-700">{c.boardingPresent}/{c.boardingTotal}</td>
                         <td className="p-3 text-center text-slate-700">{c.nonBoardingPresent}/{c.nonBoardingTotal}</td>
+                        <td className="p-3 text-center font-extrabold text-blue-900">
+                          {c.isApproved ? `${c.attendanceRate.toFixed(1)}%` : '--'}
+                        </td>
+                        <td className="p-3 text-center font-bold text-rose-700">
+                          {c.isApproved ? `${c.absentRate.toFixed(1)}%` : '--'}
+                        </td>
                         <td className="p-3 text-center">
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             c.isApproved
@@ -795,6 +861,22 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50/70 font-black text-slate-900 border-t-2 border-slate-200">
+                      <td className="p-3 text-center" colSpan={4}>TỔNG CỘNG TOÀN TRƯỜNG (CÁC LỚP ĐÃ DUYỆT)</td>
+                      <td className="p-3 text-center">{dailyData.totalStudentsRoster}</td>
+                      <td className="p-3 text-center text-emerald-900">{dailyData.presentCount}</td>
+                      <td className="p-3 text-center text-rose-900">{dailyData.absentCount}</td>
+                      <td className="p-3 text-center">{dailyData.excusedAbsentCount}</td>
+                      <td className="p-3 text-center">{dailyData.unexcusedAbsentCount}</td>
+                      <td className="p-3 text-center text-purple-800">{dailyData.lateCount}</td>
+                      <td className="p-3 text-center">{dailyData.boardingPresent}/{dailyData.boardingTotalRoster}</td>
+                      <td className="p-3 text-center">{dailyData.nonBoardingPresent}/{dailyData.nonBoardingTotalRoster}</td>
+                      <td className="p-3 text-center text-blue-900">{dailyData.attendanceRate.toFixed(1)}%</td>
+                      <td className="p-3 text-center text-rose-800">{dailyData.absentRate.toFixed(1)}%</td>
+                      <td className="p-3 text-center text-[10px]">{dailyData.approvedClasses}/{dailyData.totalClasses} lớp</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -885,6 +967,7 @@ export const ReportsPage: React.FC<ReportsPageProps> = ({ currentDate }) => {
       {/* TAB 4: THEO THÁNG (Mục XVIII, XIX, XX, XLIV) */}
       {activeTab === 'MONTHLY' && (
         <MonthlyAttendanceReportView
+          currentDate={selectedDate}
           session={selectedSession}
           canExport={canExportSchool}
           initialYear={jumpMonth?.year}

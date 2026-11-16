@@ -1,6 +1,6 @@
 import { AttendanceReport, SchoolClass, Student, SessionType, normalizeSession } from '../types';
 import { storageService } from './storageService';
-import { calculateAttendanceRate, filterApprovedReports } from './reportCalculationService';
+import { calculateAttendanceRate, calculatePercentage, filterApprovedReports } from './reportCalculationService';
 
 export interface SemesterDates {
   name: 'SEMESTER_1' | 'SEMESTER_2' | 'FULL_YEAR';
@@ -9,26 +9,35 @@ export interface SemesterDates {
   endDate: string;
 }
 
-export const SEMESTER_CONFIGS: Record<string, SemesterDates> = {
-  SEMESTER_1: {
-    name: 'SEMESTER_1',
-    label: 'Học kỳ I (2026–2027)',
-    startDate: '2026-09-01',
-    endDate: '2027-01-15',
-  },
-  SEMESTER_2: {
-    name: 'SEMESTER_2',
-    label: 'Học kỳ II (2026–2027)',
-    startDate: '2027-01-18',
-    endDate: '2027-05-25',
-  },
-  FULL_YEAR: {
-    name: 'FULL_YEAR',
-    label: 'Cả năm học 2026–2027',
-    startDate: '2026-09-01',
-    endDate: '2027-05-25',
-  },
-};
+export function getSemesterConfigs(schoolYearId: string = '2026-2027'): Record<'SEMESTER_1' | 'SEMESTER_2' | 'FULL_YEAR', SemesterDates> {
+  const match = String(schoolYearId || '').match(/(\d{4})\D+(\d{4})/);
+  const y1 = match ? Number(match[1]) : 2026;
+  const y2 = match ? Number(match[2]) : y1 + 1;
+  const yrLabel = `${y1}–${y2}`;
+
+  return {
+    SEMESTER_1: {
+      name: 'SEMESTER_1',
+      label: `Học kỳ I (${yrLabel})`,
+      startDate: `${y1}-08-01`,
+      endDate: `${y2}-01-15`,
+    },
+    SEMESTER_2: {
+      name: 'SEMESTER_2',
+      label: `Học kỳ II (${yrLabel})`,
+      startDate: `${y2}-01-16`,
+      endDate: `${y2}-05-31`,
+    },
+    FULL_YEAR: {
+      name: 'FULL_YEAR',
+      label: `Cả năm học ${yrLabel}`,
+      startDate: `${y1}-08-01`,
+      endDate: `${y2}-05-31`,
+    },
+  };
+}
+
+export const SEMESTER_CONFIGS: Record<string, SemesterDates> = getSemesterConfigs('2026-2027');
 
 export interface GradePeriodStat {
   grade: number;
@@ -42,6 +51,10 @@ export interface GradePeriodStat {
   unexcusedSessions: number;
   lateCount: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
 }
 
 export interface ClassPeriodStat {
@@ -58,6 +71,10 @@ export interface ClassPeriodStat {
   unexcusedSessions: number;
   lateCount: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
 }
 
 export interface SemesterReportSummary {
@@ -73,16 +90,42 @@ export interface SemesterReportSummary {
   totalUnexcusedSessions: number;
   totalLateCount: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
   gradeStats: GradePeriodStat[];
   classStats: ClassPeriodStat[];
 }
 
 class SemesterReportService {
+  public getConfig(
+    period: 'SEMESTER_1' | 'SEMESTER_2' | 'FULL_YEAR',
+    schoolYearId?: string
+  ): SemesterDates {
+    const sy = schoolYearId || storageService.getSettings().schoolYear || '2026-2027';
+    const configs = getSemesterConfigs(sy);
+    return configs[period] || configs.SEMESTER_1;
+  }
+
+  public getSemesterForDate(
+    date: string,
+    schoolYearId?: string
+  ): 'SEMESTER_1' | 'SEMESTER_2' {
+    const sy = schoolYearId || storageService.getSettings().schoolYear || '2026-2027';
+    const configs = getSemesterConfigs(sy);
+    if (date >= configs.SEMESTER_2.startDate) {
+      return 'SEMESTER_2';
+    }
+    return 'SEMESTER_1';
+  }
+
   public getSemesterReport(
     period: 'SEMESTER_1' | 'SEMESTER_2' | 'FULL_YEAR',
     session: SessionType = 'MORNING'
   ): SemesterReportSummary {
-    const config = SEMESTER_CONFIGS[period] || SEMESTER_CONFIGS.SEMESTER_1;
+    const settings = storageService.getSettings();
+    const config = this.getConfig(period, settings.schoolYear || '2026-2027');
     const normSession = normalizeSession(session);
     const classes = storageService.getClasses().filter(c => c.isActive);
     const allStudents = storageService.getStudents().filter(s => s.status === 'active');
@@ -132,6 +175,10 @@ class SemesterReportService {
       totalLateCount += clsLate;
 
       const clsRate = calculateAttendanceRate(clsExp, clsPres);
+      const clsAbsentRate = calculatePercentage(clsAbs, clsExp);
+      const clsExcusedRate = calculatePercentage(clsExc, clsExp);
+      const clsUnexcusedRate = calculatePercentage(clsUnexc, clsExp);
+      const clsLateRate = calculatePercentage(clsLate, clsExp);
       const clsStudents = allStudents.filter(s => s.classId === cls.id || s.className === cls.name);
 
       return {
@@ -148,6 +195,10 @@ class SemesterReportService {
         unexcusedSessions: clsUnexc,
         lateCount: clsLate,
         attendanceRate: clsRate,
+        absentRate: clsAbsentRate,
+        excusedRate: clsExcusedRate,
+        unexcusedRate: clsUnexcusedRate,
+        lateRate: clsLateRate,
       };
     });
 
@@ -175,6 +226,10 @@ class SemesterReportService {
         unexcusedSessions: gUnexc,
         lateCount: gLate,
         attendanceRate: gRate,
+        absentRate: calculatePercentage(gAbs, gExp),
+        excusedRate: calculatePercentage(gExc, gExp),
+        unexcusedRate: calculatePercentage(gUnexc, gExp),
+        lateRate: calculatePercentage(gLate, gExp),
       };
     });
 
@@ -193,6 +248,10 @@ class SemesterReportService {
       totalUnexcusedSessions,
       totalLateCount,
       attendanceRate: overallRate,
+      absentRate: calculatePercentage(totalAbsentSessions, totalExpectedSessions),
+      excusedRate: calculatePercentage(totalExcusedSessions, totalExpectedSessions),
+      unexcusedRate: calculatePercentage(totalUnexcusedSessions, totalExpectedSessions),
+      lateRate: calculatePercentage(totalLateCount, totalExpectedSessions),
       gradeStats,
       classStats,
     };

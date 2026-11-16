@@ -1,6 +1,6 @@
 import { AttendanceReport, AttendanceRecord, SchoolClass, Student, SessionType, normalizeSession } from '../types';
 import { storageService } from './storageService';
-import { calculateAttendanceRate, filterApprovedReports, isSchoolDay } from './reportCalculationService';
+import { calculateAttendanceRate, calculatePercentage, filterApprovedReports, isSchoolDay } from './reportCalculationService';
 
 export interface FrequentAbsentStudent {
   studentId: string;
@@ -35,6 +35,11 @@ export interface MonthlyClassStat {
   boardingPresent: number;
   boardingAbsent: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
+  boardingRate: number;
 }
 
 export interface MonthOverMonthComparison {
@@ -60,7 +65,15 @@ export interface MonthlyAttendanceSummary {
   totalUnexcusedSessions: number;
   totalLateCount: number;
   totalEarlyLeaveCount: number;
+  boardingExpected: number;
+  boardingPresent: number;
+  boardingAbsent: number;
+  boardingRate: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
   studentsWithAbsenceCount: number;
   classStats: MonthlyClassStat[];
   frequentAbsentStudents: FrequentAbsentStudent[];
@@ -160,6 +173,11 @@ class MonthlyReportService {
       totalEarlyLeaveCount += clsEarly;
 
       const clsRate = calculateAttendanceRate(clsExpected, clsPresent);
+      const clsAbsentRate = calculatePercentage(clsAbsent, clsExpected);
+      const clsExcusedRate = calculatePercentage(clsExcused, clsExpected);
+      const clsUnexcusedRate = calculatePercentage(clsUnexcused, clsExpected);
+      const clsLateRate = calculatePercentage(clsLate, clsExpected);
+      const clsBoardingRate = calculatePercentage(clsBoardingPres, clsBoardingExp);
       const clsStudents = allStudents.filter(s => s.classId === cls.id || s.className === cls.name);
 
       return {
@@ -180,6 +198,11 @@ class MonthlyReportService {
         boardingPresent: clsBoardingPres,
         boardingAbsent: clsBoardingAbs,
         attendanceRate: clsRate,
+        absentRate: clsAbsentRate,
+        excusedRate: clsExcusedRate,
+        unexcusedRate: clsUnexcusedRate,
+        lateRate: clsLateRate,
+        boardingRate: clsBoardingRate,
       };
     });
 
@@ -259,6 +282,14 @@ class MonthlyReportService {
     }
 
     const overallRate = calculateAttendanceRate(totalExpectedSessions, totalPresentSessions);
+    const overallAbsentRate = calculatePercentage(totalAbsentSessions, totalExpectedSessions);
+    const overallExcusedRate = calculatePercentage(totalExcusedSessions, totalExpectedSessions);
+    const overallUnexcusedRate = calculatePercentage(totalUnexcusedSessions, totalExpectedSessions);
+    const overallLateRate = calculatePercentage(totalLateCount, totalExpectedSessions);
+    const boardingExpected = classStats.reduce((sum, c) => sum + c.boardingExpected, 0);
+    const boardingPresent = classStats.reduce((sum, c) => sum + c.boardingPresent, 0);
+    const boardingAbsent = classStats.reduce((sum, c) => sum + c.boardingAbsent, 0);
+    const boardingRate = calculatePercentage(boardingPresent, boardingExpected);
 
     // Month-over-month comparison
     let comparisonWithPreviousMonth: MonthOverMonthComparison | null = null;
@@ -305,7 +336,15 @@ class MonthlyReportService {
       totalUnexcusedSessions,
       totalLateCount,
       totalEarlyLeaveCount,
+      boardingExpected,
+      boardingPresent,
+      boardingAbsent,
+      boardingRate,
       attendanceRate: overallRate,
+      absentRate: overallAbsentRate,
+      excusedRate: overallExcusedRate,
+      unexcusedRate: overallUnexcusedRate,
+      lateRate: overallLateRate,
       studentsWithAbsenceCount,
       classStats,
       frequentAbsentStudents,

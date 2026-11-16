@@ -4,7 +4,9 @@ import { monthlyReportService } from '../../services/monthlyReportService';
 import { excelExportService } from '../../services/excelExportService';
 import { storageService } from '../../services/storageService';
 import { periodReportService } from '../../services/periodReportService';
+import { calculatePercentage } from '../../services/reportCalculationService';
 import { SessionType, getSessionDisplayName } from '../../types';
+import { getTodayDateString } from '../../utils/formatters';
 import {
   FileSpreadsheet,
   UserX,
@@ -14,9 +16,11 @@ import {
   CheckCircle2,
   Clock,
   History,
+  Sparkles,
 } from 'lucide-react';
 
 interface MonthlyAttendanceReportViewProps {
+  currentDate?: string;
   session: SessionType;
   canExport: boolean;
   initialYear?: number;
@@ -25,6 +29,7 @@ interface MonthlyAttendanceReportViewProps {
 }
 
 export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewProps> = ({
+  currentDate,
   session = 'MORNING',
   canExport,
   initialYear,
@@ -39,8 +44,14 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
     !!currentUser?.permissions?.canFinalizeAttendance ||
     !!currentUser?.permissions?.canExportSchoolReports;
 
-  const [selectedYear, setSelectedYear] = useState<number>(initialYear || 2026);
-  const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || 10);
+  const settings = storageService.getSettings();
+  const schoolYearId = settings.schoolYear || '2026-2027';
+
+  const fallbackDate = currentDate || getTodayDateString();
+  const [fallbackY, fallbackM] = fallbackDate.split('-').map(Number);
+
+  const [selectedYear, setSelectedYear] = useState<number>(initialYear || fallbackY || 2026);
+  const [selectedMonth, setSelectedMonth] = useState<number>(initialMonth || fallbackM || 11);
   const [threshold, setThreshold] = useState<number>(3);
   const [gradeFilter, setGradeFilter] = useState<string>('ALL');
   const [isExporting, setIsExporting] = useState(false);
@@ -53,8 +64,14 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
     if (initialYear && initialMonth) {
       setSelectedYear(initialYear);
       setSelectedMonth(initialMonth);
+    } else if (currentDate) {
+      const [y, m] = currentDate.split('-').map(Number);
+      if (y && m) {
+        setSelectedYear(y);
+        setSelectedMonth(m);
+      }
     }
-  }, [initialYear, initialMonth]);
+  }, [initialYear, initialMonth, currentDate]);
 
   useEffect(() => {
     const onChanged = () => setRefreshTick(t => t + 1);
@@ -67,6 +84,40 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
       window.removeEventListener('thcs_banbo_classes_changed', onChanged);
     };
   }, []);
+
+  const monthOptions = useMemo(() => {
+    const parts = schoolYearId.split('-').map(Number);
+    const y1 = parts[0] || selectedYear;
+    const y2 = parts[1] || y1 + 1;
+    const opts = [
+      { year: y1, month: 8 },
+      { year: y1, month: 9 },
+      { year: y1, month: 10 },
+      { year: y1, month: 11 },
+      { year: y1, month: 12 },
+      { year: y2, month: 1 },
+      { year: y2, month: 2 },
+      { year: y2, month: 3 },
+      { year: y2, month: 4 },
+      { year: y2, month: 5 },
+    ];
+    if (!opts.some(o => o.year === selectedYear && o.month === selectedMonth)) {
+      opts.push({ year: selectedYear, month: selectedMonth });
+      opts.sort((a, b) => (a.year !== b.year ? a.year - b.year : a.month - b.month));
+    }
+    return opts;
+  }, [schoolYearId, selectedYear, selectedMonth]);
+
+  // Tự động lưu báo cáo tháng nếu có dữ liệu mới
+  useEffect(() => {
+    periodReportService.autoSaveMonthlyReport(
+      selectedYear,
+      selectedMonth,
+      session,
+      currentUser?.name || settings.adminName || 'Hệ thống tự động',
+      { threshold }
+    );
+  }, [selectedYear, selectedMonth, session, threshold, refreshTick, currentUser?.name, settings.adminName]);
 
   const periodKey = useMemo(
     () => periodReportService.getMonthlyPeriodKey(selectedYear, selectedMonth, session),
@@ -107,10 +158,13 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
             )
           : (savedSnapshot.frequentAbsentStudents || []).filter((s: any) => s.totalAbsent >= threshold);
 
+      const expected = savedSnapshot.totalExpectedSessions;
+      const bExpected = savedSnapshot.boardingExpected ?? monthData.boardingExpected;
+      const bPresent = savedSnapshot.boardingPresent ?? monthData.boardingPresent;
       return {
         ...monthData,
         schoolDaysCount: savedSnapshot.schoolDaysCount,
-        totalExpectedSessions: savedSnapshot.totalExpectedSessions,
+        totalExpectedSessions: expected,
         totalPresentSessions: savedSnapshot.totalPresentSessions,
         totalAbsentSessions: savedSnapshot.totalAbsentSessions,
         totalExcusedSessions: savedSnapshot.totalExcusedSessions,
@@ -118,6 +172,23 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
         totalLateCount: savedSnapshot.totalLateCount,
         totalEarlyLeaveCount: savedSnapshot.totalEarlyLeaveCount,
         attendanceRate: savedSnapshot.attendanceRate,
+        absentRate:
+          savedSnapshot.absentRate ??
+          calculatePercentage(savedSnapshot.totalAbsentSessions, expected),
+        excusedRate:
+          savedSnapshot.excusedRate ??
+          calculatePercentage(savedSnapshot.totalExcusedSessions, expected),
+        unexcusedRate:
+          savedSnapshot.unexcusedRate ??
+          calculatePercentage(savedSnapshot.totalUnexcusedSessions, expected),
+        lateRate:
+          savedSnapshot.lateRate ??
+          calculatePercentage(savedSnapshot.totalLateCount, expected),
+        boardingExpected: bExpected,
+        boardingPresent: bPresent,
+        boardingAbsent: savedSnapshot.boardingAbsent ?? monthData.boardingAbsent,
+        boardingRate:
+          savedSnapshot.boardingRate ?? calculatePercentage(bPresent, bExpected),
         studentsWithAbsenceCount: savedSnapshot.studentsWithAbsenceCount ?? monthData.studentsWithAbsenceCount,
         classStats: filteredClasses,
         frequentAbsentStudents: filteredFrequent,
@@ -127,13 +198,13 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
   }, [viewMode, savedSnapshot, monthData, gradeFilter, threshold]);
 
   const handleSaveMonthly = (lockAfterSave: boolean = false) => {
-    const settings = storageService.getSettings();
+    const curSettings = storageService.getSettings();
     const saved = periodReportService.saveMonthlyReport(
       selectedYear,
       selectedMonth,
       session,
-      currentUser?.name || settings.adminName || 'Quản trị viên',
-      currentUser?.title || settings.adminTitle || 'Tổng Phụ trách Đội',
+      currentUser?.name || curSettings.adminName || 'Quản trị viên',
+      currentUser?.title || curSettings.adminTitle || 'Tổng Phụ trách Đội',
       {
         notes: saveNotes.trim() || undefined,
         lock: lockAfterSave,
@@ -149,11 +220,11 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
 
   const handleToggleLock = () => {
     if (!savedSnapshot) return;
-    const settings = storageService.getSettings();
+    const curSettings = storageService.getSettings();
     const updated = periodReportService.toggleLockPeriodReport(
       savedSnapshot.periodKey,
       savedSnapshot.status !== 'LOCKED',
-      currentUser?.name || settings.adminName || 'Quản trị viên'
+      currentUser?.name || curSettings.adminName || 'Quản trị viên'
     );
     if (updated) {
       setSaveBanner(
@@ -188,22 +259,31 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
                   className={`text-xs font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
                     savedSnapshot.status === 'LOCKED'
                       ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      : savedSnapshot.isAutoSaved
+                      ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
                       : 'bg-blue-100 text-blue-900 border border-blue-300'
                   }`}
                 >
                   {savedSnapshot.status === 'LOCKED' ? (
                     <Lock className="w-3 h-3" />
+                  ) : savedSnapshot.isAutoSaved ? (
+                    <Sparkles className="w-3 h-3" />
                   ) : (
                     <CheckCircle2 className="w-3 h-3" />
                   )}
                   <span>
-                    {savedSnapshot.status === 'LOCKED' ? 'Đã chốt khóa' : 'Đã lưu kho'} (v{savedSnapshot.reportVersion})
+                    {savedSnapshot.status === 'LOCKED'
+                      ? 'Đã chốt khóa'
+                      : savedSnapshot.isAutoSaved
+                      ? 'Tự động lưu'
+                      : 'Đã lưu kho'}{' '}
+                    (v{savedSnapshot.reportVersion})
                   </span>
                 </span>
               ) : (
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span>Chưa lưu vào kho</span>
+                  <span>Chưa phát sinh dữ liệu duyệt tháng này</span>
                 </span>
               )}
             </div>
@@ -211,7 +291,7 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
               BÁO CÁO CHUYÊN CẦN THÁNG {selectedMonth}/{selectedYear}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Năm học 2026–2027 · Số ngày học trong tháng:{' '}
+              Năm học {schoolYearId} · Số ngày học trong tháng:{' '}
               <strong className="text-slate-900">{displayData.schoolDaysCount}</strong> ngày (đã loại trừ ngày nghỉ lễ)
               {savedSnapshot && (
                 <span className="ml-2 text-emerald-700 font-medium">
@@ -232,15 +312,11 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
               }}
               className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 font-bold text-slate-900 cursor-pointer"
             >
-              <option value="2026-9">Tháng 9 / 2026</option>
-              <option value="2026-10">Tháng 10 / 2026</option>
-              <option value="2026-11">Tháng 11 / 2026</option>
-              <option value="2026-12">Tháng 12 / 2026</option>
-              <option value="2027-1">Tháng 1 / 2027</option>
-              <option value="2027-2">Tháng 2 / 2027</option>
-              <option value="2027-3">Tháng 3 / 2027</option>
-              <option value="2027-4">Tháng 4 / 2027</option>
-              <option value="2027-5">Tháng 5 / 2027</option>
+              {monthOptions.map((opt) => (
+                <option key={`${opt.year}-${opt.month}`} value={`${opt.year}-${opt.month}`}>
+                  Tháng {opt.month} / {opt.year}
+                </option>
+              ))}
             </select>
 
             {/* Select Grade */}
@@ -359,11 +435,13 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
       </div>
 
       {/* KPI Cards (Mục XVIII) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="text-[11px] font-bold text-slate-500 uppercase">Ngày học</div>
           <div className="text-2xl font-black text-slate-900 mt-1">{displayData.schoolDaysCount}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">ngày thực học</div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            Bán trú đạt: <strong>{displayData.boardingRate.toFixed(1)}%</strong>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-xs bg-emerald-50/20">
@@ -374,26 +452,43 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
 
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="text-[11px] font-bold text-slate-500 uppercase">Lượt có mặt</div>
-          <div className="text-2xl font-black text-blue-900 mt-1">{displayData.totalPresentSessions}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">lượt học sinh</div>
+          <div className="text-2xl font-black text-blue-900 mt-1">
+            {displayData.totalPresentSessions}
+            <span className="text-xs font-extrabold text-blue-700 ml-1">
+              ({displayData.attendanceRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">trên tổng {displayData.totalExpectedSessions} lượt</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-rose-200 shadow-xs bg-rose-50/20">
           <div className="text-[11px] font-bold text-rose-800 uppercase">Tổng lượt vắng</div>
-          <div className="text-2xl font-black text-rose-950 mt-1">{displayData.totalAbsentSessions}</div>
-          <div className="text-[10px] text-rose-700 mt-0.5">Có phép: {displayData.totalExcusedSessions} · K.Phép: {displayData.totalUnexcusedSessions}</div>
+          <div className="text-2xl font-black text-rose-950 mt-1">
+            {displayData.totalAbsentSessions}
+            <span className="text-xs font-extrabold text-rose-700 ml-1">
+              ({displayData.absentRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-rose-700 mt-0.5">
+            Phép: {displayData.totalExcusedSessions} ({displayData.excusedRate.toFixed(1)}%) · K.P: {displayData.totalUnexcusedSessions} ({displayData.unexcusedRate.toFixed(1)}%)
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-purple-200 shadow-xs">
           <div className="text-[11px] font-bold text-purple-800 uppercase">Đi học muộn</div>
-          <div className="text-2xl font-black text-purple-950 mt-1">{displayData.totalLateCount}</div>
+          <div className="text-2xl font-black text-purple-950 mt-1">
+            {displayData.totalLateCount}
+            <span className="text-xs font-extrabold text-purple-700 ml-1">
+              ({displayData.lateRate.toFixed(1)}%)
+            </span>
+          </div>
           <div className="text-[10px] text-purple-700 mt-0.5">lượt trong tháng</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-amber-200 shadow-xs">
           <div className="text-[11px] font-bold text-amber-800 uppercase">HS có phát sinh nghỉ</div>
           <div className="text-2xl font-black text-amber-950 mt-1">{displayData.studentsWithAbsenceCount}</div>
-          <div className="text-[10px] text-amber-700 mt-0.5">học sinh</div>
+          <div className="text-[10px] text-amber-700 mt-0.5">học sinh trong tháng</div>
         </div>
       </div>
 
@@ -527,10 +622,13 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
 
       {/* Class Statistics for Month */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 border-b border-slate-200">
+        <div className="p-4 border-b border-slate-200 flex items-center justify-between">
           <h4 className="text-sm font-bold text-slate-900 uppercase">
-            THỐNG KÊ CHI TIẾT 20 LỚP TRONG THÁNG
+            THỐNG KÊ CHI TIẾT {displayData.classStats.length} LỚP TRONG THÁNG {selectedMonth}/{selectedYear}
           </h4>
+          <span className="text-xs text-slate-500">
+            Công thức: Lượt có mặt / Tổng lượt dự kiến × 100
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -545,30 +643,55 @@ export const MonthlyAttendanceReportView: React.FC<MonthlyAttendanceReportViewPr
                 <th className="p-3 text-center">Có phép</th>
                 <th className="p-3 text-center">Không phép</th>
                 <th className="p-3 text-center">Đi muộn</th>
-                <th className="p-3 text-center">Tỉ lệ chuyên cần</th>
+                <th className="p-3 text-center">% Có mặt</th>
+                <th className="p-3 text-center">% Vắng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {displayData.classStats.map((c: any) => (
-                <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-bold text-slate-900">{c.className}</td>
-                  <td className="p-3 text-slate-700">{c.teacherName}</td>
-                  <td className="p-3 text-center font-medium">{c.totalStudents}</td>
-                  <td className="p-3 text-center text-slate-600">{c.schoolDaysCount}</td>
-                  <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
-                  <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
-                  <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
-                  <td className="p-3 text-center font-black text-blue-900">
-                    {Number(c.attendanceRate || 0).toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
+              {displayData.classStats.map((c: any) => {
+                const cAbsentRate =
+                  c.absentRate ?? calculatePercentage(c.absentSessions || 0, c.expectedSessions || 0);
+                return (
+                  <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-bold text-slate-900">{c.className}</td>
+                    <td className="p-3 text-slate-700">{c.teacherName}</td>
+                    <td className="p-3 text-center font-medium">{c.totalStudents}</td>
+                    <td className="p-3 text-center text-slate-600">{c.schoolDaysCount}</td>
+                    <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
+                    <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
+                    <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
+                    <td className="p-3 text-center font-black text-blue-900">
+                      {Number(c.attendanceRate || 0).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-center font-bold text-rose-700">
+                      {Number(cAbsentRate).toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-black text-slate-900">
+                <td className="p-3" colSpan={2}>TỔNG CỘNG {gradeFilter === 'ALL' ? 'TOÀN TRƯỜNG' : `KHỐI ${gradeFilter}`}</td>
+                <td className="p-3 text-center">
+                  {displayData.classStats.reduce((sum: number, c: any) => sum + (c.totalStudents || 0), 0)} HS
+                </td>
+                <td className="p-3 text-center">{displayData.schoolDaysCount} ngày</td>
+                <td className="p-3 text-center text-emerald-800">{displayData.totalPresentSessions}</td>
+                <td className="p-3 text-center text-rose-800">{displayData.totalAbsentSessions}</td>
+                <td className="p-3 text-center">{displayData.totalExcusedSessions}</td>
+                <td className="p-3 text-center">{displayData.totalUnexcusedSessions}</td>
+                <td className="p-3 text-center text-purple-800">{displayData.totalLateCount}</td>
+                <td className="p-3 text-center text-blue-900">{displayData.attendanceRate.toFixed(1)}%</td>
+                <td className="p-3 text-center text-rose-700">{displayData.absentRate.toFixed(1)}%</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
     </div>
   );
 };
+

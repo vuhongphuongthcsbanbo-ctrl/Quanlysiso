@@ -8,6 +8,7 @@ import {
   getSessionDisplayName,
 } from '../../types';
 import { storageService } from '../../services/storageService';
+import { calculatePercentage } from '../../services/reportCalculationService';
 import {
   Archive,
   Lock,
@@ -18,6 +19,7 @@ import {
   Trash2,
   ExternalLink,
   FileText,
+  Sparkles,
 } from 'lucide-react';
 import { ConfirmDialog } from '../../theme/designSystem';
 
@@ -40,7 +42,9 @@ interface UnifiedArchiveEntry {
   presentValue: string;
   absentValue: string;
   rate: number;
+  absentRate: number;
   isLocked: boolean;
+  isAutoSaved: boolean;
   statusLabel: string;
   rawDaily?: SchoolDailyReport;
   rawPeriod?: SavedPeriodReport;
@@ -75,18 +79,18 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
 
     const mappedDaily: UnifiedArchiveEntry[] = dailyList.map(r => {
       const total = r.totalStudentsSnapshot ?? r.totalStudents;
-      const rate = r.confirmedStudents > 0
-        ? Math.round((r.presentCount / r.confirmedStudents) * 1000) / 10
-        : total > 0
-        ? Math.round((r.presentCount / total) * 1000) / 10
-        : 100;
+      const denom = r.confirmedStudents > 0 ? r.confirmedStudents : total;
+      const rate = r.attendanceRate ?? (denom > 0 ? calculatePercentage(r.presentCount, denom) : 0);
+      const absentRate = r.absentRate ?? (denom > 0 ? calculatePercentage(r.absentCount, denom) : 0);
       const isLocked = r.reportStatus === 'LOCKED';
-      const statusLabel =
-        r.reportStatus === 'LOCKED'
-          ? 'Đã khóa chính thức'
-          : r.reportStatus === 'OFFICIAL'
-          ? 'Đã lưu chính thức'
-          : 'Đã lưu sơ bộ';
+      const isAutoSaved = !!r.isAutoSaved;
+      const statusLabel = isLocked
+        ? 'Đã khóa chính thức'
+        : isAutoSaved
+        ? 'Tự động lưu'
+        : r.reportStatus === 'OFFICIAL'
+        ? 'Đã lưu chính thức'
+        : 'Đã lưu sơ bộ';
 
       return {
         kind: 'DAILY',
@@ -94,18 +98,20 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
         periodType: 'DAILY',
         category: 'DAILY',
         title: `Báo cáo ngày ${r.date}`,
-        subtitle: `${r.approvedClasses}/${r.totalClasses} lớp duyệt · Bán trú: ${r.boardingPresent}/${r.boardingTotalSnapshot ?? r.boardingTotal}`,
+        subtitle: `${r.approvedClasses}/${r.totalClasses} lớp duyệt · Bán trú: ${r.boardingPresent}/${r.boardingTotalSnapshot ?? r.boardingTotal} (${(r.boardingRate ?? calculatePercentage(r.boardingPresent, r.boardingTotalSnapshot ?? r.boardingTotal)).toFixed(1)}%)`,
         dateSortKey: r.updatedAt || r.finalizedAt || r.date,
         session: r.session === 'AFTERNOON' ? 'AFTERNOON' : 'MORNING',
         version: r.reportVersion || 1,
-        savedBy: r.finalizedBy || 'Phạm Ngọc Thúy',
+        savedBy: r.finalizedBy || 'Hệ thống tự động',
         savedByTitle: r.finalizedByTitle || 'Tổng Phụ trách Đội',
         savedAt: r.finalizedAt || r.updatedAt,
         totalStudents: total,
         presentValue: `${r.presentCount} HS`,
         absentValue: `${r.absentCount} HS`,
         rate,
+        absentRate,
         isLocked,
+        isAutoSaved,
         statusLabel,
         rawDaily: r,
       };
@@ -120,6 +126,10 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
           : p.periodType === 'SCHOOL_YEAR'
           ? 'SCHOOL_YEAR'
           : 'SEMESTER';
+      const isLocked = p.status === 'LOCKED';
+      const isAutoSaved = !!p.isAutoSaved;
+      const absentRate =
+        p.absentRate ?? calculatePercentage(p.totalAbsentSessions, p.totalExpectedSessions);
 
       return {
         kind: 'PERIOD',
@@ -138,8 +148,14 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
         presentValue: `${p.totalPresentSessions} lượt`,
         absentValue: `${p.totalAbsentSessions} lượt`,
         rate: p.attendanceRate,
-        isLocked: p.status === 'LOCKED',
-        statusLabel: p.status === 'LOCKED' ? 'Đã chốt khóa' : 'Đã lưu kho',
+        absentRate,
+        isLocked,
+        isAutoSaved,
+        statusLabel: isLocked
+          ? 'Đã chốt khóa'
+          : isAutoSaved
+          ? 'Tự động lưu'
+          : 'Đã lưu thủ công',
         rawPeriod: p,
       };
     });
@@ -204,13 +220,13 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <div className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-full uppercase tracking-wider inline-block">
-              Kho lưu trữ số liệu chính thức
+              Kho lưu trữ số liệu chính thức & tự động đồng bộ
             </div>
             <h3 className="text-lg font-black text-slate-900 mt-1">
               KHO BÁO CÁO SĨ SỐ ĐÃ LƯU (NGÀY · TUẦN · THÁNG · HỌC KỲ · NĂM HỌC)
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Lưu trữ nguyên vẹn snapshot sĩ số lịch sử, thông tin người lưu/chốt, thời gian và lịch sử phiên bản (v1, v2...)
+              Tự động lưu và tính tỉ lệ % sĩ số ngay khi giáo viên/BGH cập nhật điểm danh; hỗ trợ chốt khóa & theo dõi lịch sử phiên bản (v1, v2...)
             </p>
           </div>
 
@@ -271,9 +287,7 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
               Chưa có báo cáo nào được lưu trong mục này.
             </div>
             <p className="text-slate-400 mt-1 max-w-md mx-auto">
-              Thầy/Cô có thể bấm nút <strong>"Lưu báo cáo ngày"</strong>, <strong>"Lưu báo cáo tuần"</strong>,{' '}
-              <strong>"Lưu báo cáo tháng"</strong>, <strong>"Lưu báo cáo học kỳ"</strong> hoặc{' '}
-              <strong>"Lưu báo cáo năm học"</strong> ở từng tab tương ứng để lưu trữ vào kho.
+              Hệ thống sẽ tự động lưu số liệu Ngày, Tuần, Tháng, Học kỳ, Năm học ngay khi có dữ liệu điểm danh được ghi nhận hoặc khi Thầy/Cô bấm lưu thủ công.
             </p>
           </div>
         ) : (
@@ -289,7 +303,8 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
                   <th className="p-3 text-center">Sĩ số</th>
                   <th className="p-3 text-center">Có mặt</th>
                   <th className="p-3 text-center">Vắng</th>
-                  <th className="p-3 text-center">Tỉ lệ</th>
+                  <th className="p-3 text-center">% Có mặt</th>
+                  <th className="p-3 text-center">% Vắng</th>
                   <th className="p-3 text-center">Trạng thái</th>
                   <th className="p-3 text-center">Thao tác</th>
                 </tr>
@@ -332,15 +347,26 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
                       <td className="p-3 text-center font-black text-blue-900">
                         {entry.rate.toFixed(1)}%
                       </td>
+                      <td className="p-3 text-center font-bold text-rose-700">
+                        {entry.absentRate.toFixed(1)}%
+                      </td>
                       <td className="p-3 text-center">
                         <span
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 whitespace-nowrap ${
                             entry.isLocked
                               ? 'bg-emerald-100 text-emerald-800'
+                              : entry.isAutoSaved
+                              ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
                               : 'bg-blue-50 text-blue-800 border border-blue-200'
                           }`}
                         >
-                          {entry.isLocked ? <Lock className="w-3 h-3" /> : <CheckCircle2 className="w-3 h-3" />}
+                          {entry.isLocked ? (
+                            <Lock className="w-3 h-3" />
+                          ) : entry.isAutoSaved ? (
+                            <Sparkles className="w-3 h-3" />
+                          ) : (
+                            <CheckCircle2 className="w-3 h-3" />
+                          )}
                           <span>{entry.statusLabel}</span>
                         </span>
                       </td>
@@ -396,259 +422,305 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
       </div>
 
       {/* Daily Snapshot Details Modal */}
-      {viewingDaily && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-5 border border-slate-200 shadow-2xl max-h-[88vh] overflow-y-auto space-y-4">
-            <div className="flex items-start justify-between border-b pb-3">
-              <div>
-                <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded uppercase">
-                  Snapshot Ngày · Phiên bản v{viewingDaily.reportVersion || 1} · {getSessionDisplayName(viewingDaily.session)}
-                </span>
-                <h4 className="text-base font-extrabold text-slate-900 mt-1">
-                  BÁO CÁO SĨ SỐ NGÀY {viewingDaily.date}
-                </h4>
-                <p className="text-xs text-slate-500">
-                  Người lưu: {viewingDaily.finalizedBy} ({viewingDaily.finalizedByTitle}) lúc {viewingDaily.finalizedAt || viewingDaily.updatedAt}
-                </p>
-              </div>
-              <button
-                onClick={() => setViewingDaily(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
+      {viewingDaily && (() => {
+        const totalSnap = viewingDaily.totalStudentsSnapshot ?? viewingDaily.totalStudents;
+        const denom = viewingDaily.confirmedStudents > 0 ? viewingDaily.confirmedStudents : totalSnap;
+        const dAttRate =
+          viewingDaily.attendanceRate ?? calculatePercentage(viewingDaily.presentCount, denom);
+        const dAbsRate =
+          viewingDaily.absentRate ?? calculatePercentage(viewingDaily.absentCount, denom);
+        const dBoardTotal = viewingDaily.boardingTotalSnapshot ?? viewingDaily.boardingTotal;
+        const dBoardRate =
+          viewingDaily.boardingRate ?? calculatePercentage(viewingDaily.boardingPresent, dBoardTotal);
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                <span className="text-slate-500 block">Sĩ số snapshot:</span>
-                <strong className="text-sm text-slate-900">{viewingDaily.totalStudentsSnapshot ?? viewingDaily.totalStudents} HS</strong>
-              </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-emerald-800 block">Có mặt:</span>
-                <strong className="text-sm text-emerald-950">{viewingDaily.presentCount} HS</strong>
-              </div>
-              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                <span className="text-rose-800 block">Vắng:</span>
-                <strong className="text-sm text-rose-950">{viewingDaily.absentCount} HS</strong>
-              </div>
-              <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
-                <span className="text-purple-800 block">Bán trú có mặt:</span>
-                <strong className="text-sm text-purple-950">{viewingDaily.boardingPresent} HS</strong>
-              </div>
-            </div>
-
-            {viewingDaily.classesSnapshot && viewingDaily.classesSnapshot.length > 0 && (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700 uppercase border-b border-slate-200">
-                  Chi tiết 20 lớp tại thời điểm lưu
-                </div>
-                <div className="max-h-60 overflow-y-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase sticky top-0">
-                      <tr>
-                        <th className="p-2">Lớp</th>
-                        <th className="p-2 text-center">Sĩ số</th>
-                        <th className="p-2 text-center">Có mặt</th>
-                        <th className="p-2 text-center">Vắng</th>
-                        <th className="p-2 text-center">Bán trú</th>
-                        <th className="p-2 text-center">Ngoại trú</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {viewingDaily.classesSnapshot.map(c => (
-                        <tr key={c.classId}>
-                          <td className="p-2 font-bold text-slate-900">{c.className}</td>
-                          <td className="p-2 text-center">{c.totalStudents}</td>
-                          <td className="p-2 text-center font-bold text-emerald-700">{c.presentCount}</td>
-                          <td className="p-2 text-center font-bold text-rose-700">{c.absentCount}</td>
-                          <td className="p-2 text-center">{c.boardingPresent}/{c.boardingTotal}</td>
-                          <td className="p-2 text-center">{c.nonBoardingPresent}/{c.nonBoardingTotal}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            {viewingDaily.versionHistory && viewingDaily.versionHistory.length > 0 && (
-              <div className="pt-2 border-t">
-                <div className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-blue-600" />
-                  <span>Lịch sử các phiên bản trước đó</span>
-                </div>
-                <div className="space-y-1.5 text-xs">
-                  {viewingDaily.versionHistory.map(vh => (
-                    <div key={vh.version} className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex justify-between items-center">
-                      <div>
-                        <strong className="text-slate-900">Phiên bản v{vh.version}</strong>
-                        <div className="text-[11px] text-slate-500">Lưu bởi: {vh.finalizedBy} lúc {vh.finalizedAt}</div>
-                        {vh.revisionReason && (
-                          <div className="text-[10px] text-amber-800 italic mt-0.5">Ghi chú / Lý do: "{vh.revisionReason}"</div>
-                        )}
-                      </div>
-                      <div className="text-right">
-                        <span className="text-emerald-800 font-bold">{vh.presentCount} có mặt</span> · <span className="text-rose-800 font-bold">{vh.absentCount} vắng</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="pt-2 flex justify-end gap-2">
-              <button
-                onClick={() => {
-                  const targetDate = viewingDaily.date;
-                  const targetSession = viewingDaily.session;
-                  setViewingDaily(null);
-                  onViewReportDate(targetDate, targetSession);
-                }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Mở trong tab Theo ngày
-              </button>
-              <button
-                onClick={() => setViewingDaily(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Period Snapshot Details Modal (Tuần, Tháng, Học kỳ, Năm học) */}
-      {viewingPeriod && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-2xl max-w-3xl w-full p-5 border border-slate-200 shadow-2xl max-h-[88vh] overflow-y-auto space-y-4">
-            <div className="flex items-start justify-between border-b pb-3">
-              <div>
-                <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded uppercase">
-                  Snapshot Phiên bản v{viewingPeriod.reportVersion || 1} · {getSessionDisplayName(viewingPeriod.session)}
-                </span>
-                <h4 className="text-base font-extrabold text-slate-900 mt-1">
-                  {viewingPeriod.title.toUpperCase()}
-                </h4>
-                <p className="text-xs text-slate-500">
-                  Từ {viewingPeriod.startDate} đến {viewingPeriod.endDate} · Lưu bởi: {viewingPeriod.savedBy} lúc {viewingPeriod.savedAt}
-                </p>
-                {viewingPeriod.notes && (
-                  <p className="text-xs text-blue-800 mt-1 flex items-center gap-1">
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Ghi chú: {viewingPeriod.notes}</span>
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-2xl max-w-3xl w-full p-5 border border-slate-200 shadow-2xl max-h-[88vh] overflow-y-auto space-y-4">
+              <div className="flex items-start justify-between border-b pb-3">
+                <div>
+                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded uppercase">
+                    Snapshot Ngày · Phiên bản v{viewingDaily.reportVersion || 1} · {getSessionDisplayName(viewingDaily.session)}
+                    {viewingDaily.isAutoSaved ? ' · Tự động lưu' : ''}
+                  </span>
+                  <h4 className="text-base font-extrabold text-slate-900 mt-1">
+                    BÁO CÁO SĨ SỐ NGÀY {viewingDaily.date}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Người lưu: {viewingDaily.finalizedBy} ({viewingDaily.finalizedByTitle}) lúc {viewingDaily.finalizedAt || viewingDaily.updatedAt}
                   </p>
-                )}
-              </div>
-              <button
-                onClick={() => setViewingPeriod(null)}
-                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-              <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                <span className="text-slate-500 block">Số ngày học:</span>
-                <strong className="text-sm text-slate-900">{viewingPeriod.schoolDaysCount} ngày</strong>
-              </div>
-              <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
-                <span className="text-emerald-800 block">Tỉ lệ chuyên cần:</span>
-                <strong className="text-sm text-emerald-950">{viewingPeriod.attendanceRate.toFixed(1)}%</strong>
-              </div>
-              <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
-                <span className="text-blue-800 block">Lượt có mặt:</span>
-                <strong className="text-sm text-blue-950">{viewingPeriod.totalPresentSessions} lượt</strong>
-              </div>
-              <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
-                <span className="text-rose-800 block">Tổng lượt vắng:</span>
-                <strong className="text-sm text-rose-950">{viewingPeriod.totalAbsentSessions} lượt</strong>
-              </div>
-            </div>
-
-            {viewingPeriod.classStats && viewingPeriod.classStats.length > 0 && (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <div className="bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700 uppercase border-b border-slate-200">
-                  Bảng tổng hợp các lớp đã lưu
                 </div>
-                <div className="max-h-60 overflow-y-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase sticky top-0">
-                      <tr>
-                        <th className="p-2">Lớp</th>
-                        <th className="p-2 text-center">Số ngày</th>
-                        <th className="p-2 text-center">Lượt có mặt</th>
-                        <th className="p-2 text-center">Lượt vắng</th>
-                        <th className="p-2 text-center">Tỉ lệ</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {viewingPeriod.classStats.map((c: any) => (
-                        <tr key={c.classId}>
-                          <td className="p-2 font-bold text-slate-900">{c.className}</td>
-                          <td className="p-2 text-center">{c.schoolDaysCount ?? c.schoolDaysRecorded ?? 0}</td>
-                          <td className="p-2 text-center font-bold text-emerald-700">{c.presentSessions}</td>
-                          <td className="p-2 text-center font-bold text-rose-700">{c.absentSessions}</td>
-                          <td className="p-2 text-center font-black text-blue-900">{Number(c.attendanceRate || 0).toFixed(1)}%</td>
+                <button
+                  onClick={() => setViewingDaily(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block">Sĩ số snapshot:</span>
+                  <strong className="text-sm text-slate-900">{totalSnap} HS</strong>
+                </div>
+                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                  <span className="text-emerald-800 block">Có mặt:</span>
+                  <strong className="text-sm text-emerald-950">
+                    {viewingDaily.presentCount} HS ({dAttRate.toFixed(1)}%)
+                  </strong>
+                </div>
+                <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  <span className="text-rose-800 block">Vắng:</span>
+                  <strong className="text-sm text-rose-950">
+                    {viewingDaily.absentCount} HS ({dAbsRate.toFixed(1)}%)
+                  </strong>
+                </div>
+                <div className="bg-purple-50 p-2.5 rounded-xl border border-purple-200">
+                  <span className="text-purple-800 block">Bán trú có mặt:</span>
+                  <strong className="text-sm text-purple-950">
+                    {viewingDaily.boardingPresent}/{dBoardTotal} HS ({dBoardRate.toFixed(1)}%)
+                  </strong>
+                </div>
+              </div>
+
+              {viewingDaily.classesSnapshot && viewingDaily.classesSnapshot.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700 uppercase border-b border-slate-200">
+                    Chi tiết {viewingDaily.classesSnapshot.length} lớp tại thời điểm lưu
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase sticky top-0">
+                        <tr>
+                          <th className="p-2">Lớp</th>
+                          <th className="p-2 text-center">Sĩ số</th>
+                          <th className="p-2 text-center">Có mặt</th>
+                          <th className="p-2 text-center">Vắng</th>
+                          <th className="p-2 text-center">% Có mặt</th>
+                          <th className="p-2 text-center">% Vắng</th>
+                          <th className="p-2 text-center">Bán trú</th>
+                          <th className="p-2 text-center">Ngoại trú</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {viewingDaily.classesSnapshot.map(c => {
+                          const cAttRate =
+                            c.attendanceRate ?? calculatePercentage(c.presentCount, c.totalStudents);
+                          const cAbsRate =
+                            c.absentRate ?? calculatePercentage(c.absentCount, c.totalStudents);
+                          return (
+                            <tr key={c.classId}>
+                              <td className="p-2 font-bold text-slate-900">{c.className}</td>
+                              <td className="p-2 text-center">{c.totalStudents}</td>
+                              <td className="p-2 text-center font-bold text-emerald-700">{c.presentCount}</td>
+                              <td className="p-2 text-center font-bold text-rose-700">{c.absentCount}</td>
+                              <td className="p-2 text-center font-bold text-blue-900">{cAttRate.toFixed(1)}%</td>
+                              <td className="p-2 text-center font-bold text-rose-700">{cAbsRate.toFixed(1)}%</td>
+                              <td className="p-2 text-center">{c.boardingPresent}/{c.boardingTotal}</td>
+                              <td className="p-2 text-center">{c.nonBoardingPresent}/{c.nonBoardingTotal}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {viewingPeriod.versionHistory && viewingPeriod.versionHistory.length > 0 && (
-              <div className="pt-2 border-t">
-                <div className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
-                  <History className="w-4 h-4 text-blue-600" />
-                  <span>Lịch sử các phiên bản trước đó</span>
-                </div>
-                <div className="space-y-1.5 text-xs">
-                  {viewingPeriod.versionHistory.map(vh => (
-                    <div key={vh.version} className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex justify-between items-center">
-                      <div>
-                        <strong className="text-slate-900">Phiên bản v{vh.version}</strong>
-                        <div className="text-[11px] text-slate-500">Lưu bởi: {vh.savedBy} lúc {vh.savedAt}</div>
-                        {vh.notes && (
-                          <div className="text-[10px] text-amber-800 italic mt-0.5">Ghi chú: "{vh.notes}"</div>
-                        )}
+              {viewingDaily.versionHistory && viewingDaily.versionHistory.length > 0 && (
+                <div className="pt-2 border-t">
+                  <div className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
+                    <History className="w-4 h-4 text-blue-600" />
+                    <span>Lịch sử các phiên bản trước đó</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {viewingDaily.versionHistory.map(vh => (
+                      <div key={vh.version} className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex justify-between items-center">
+                        <div>
+                          <strong className="text-slate-900">Phiên bản v{vh.version}</strong>
+                          <div className="text-[11px] text-slate-500">Lưu bởi: {vh.finalizedBy} lúc {vh.finalizedAt}</div>
+                          {vh.revisionReason && (
+                            <div className="text-[10px] text-amber-800 italic mt-0.5">Ghi chú / Lý do: "{vh.revisionReason}"</div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-emerald-800 font-bold">{vh.presentCount} có mặt</span> · <span className="text-rose-800 font-bold">{vh.absentCount} vắng</span>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <span className="text-emerald-800 font-bold">{vh.presentCount} có mặt</span> · <span className="text-rose-800 font-bold">{vh.absentCount} vắng</span> ({vh.attendanceRate.toFixed(1)}%)
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="pt-2 flex justify-end gap-2">
-              {onViewPeriodReport && (
+              <div className="pt-2 flex justify-end gap-2">
                 <button
                   onClick={() => {
-                    const target = viewingPeriod;
-                    setViewingPeriod(null);
-                    onViewPeriodReport(target);
+                    const targetDate = viewingDaily.date;
+                    const targetSession = viewingDaily.session;
+                    setViewingDaily(null);
+                    onViewReportDate(targetDate, targetSession);
                   }}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
                 >
-                  Mở tab báo cáo này
+                  Mở trong tab Theo ngày
                 </button>
-              )}
-              <button
-                onClick={() => setViewingPeriod(null)}
-                className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Đóng
-              </button>
+                <button
+                  onClick={() => setViewingDaily(null)}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Period Snapshot Details Modal (Tuần, Tháng, Học kỳ, Năm học) */}
+      {viewingPeriod && (() => {
+        const pAbsRate =
+          viewingPeriod.absentRate ??
+          calculatePercentage(viewingPeriod.totalAbsentSessions, viewingPeriod.totalExpectedSessions);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+            <div className="bg-white rounded-2xl max-w-3xl w-full p-5 border border-slate-200 shadow-2xl max-h-[88vh] overflow-y-auto space-y-4">
+              <div className="flex items-start justify-between border-b pb-3">
+                <div>
+                  <span className="text-[10px] font-bold bg-indigo-100 text-indigo-800 px-2 py-0.5 rounded uppercase">
+                    Snapshot Phiên bản v{viewingPeriod.reportVersion || 1} · {getSessionDisplayName(viewingPeriod.session)}
+                    {viewingPeriod.isAutoSaved ? ' · Tự động lưu' : ''}
+                  </span>
+                  <h4 className="text-base font-extrabold text-slate-900 mt-1">
+                    {viewingPeriod.title.toUpperCase()}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Từ {viewingPeriod.startDate} đến {viewingPeriod.endDate} · Lưu bởi: {viewingPeriod.savedBy} lúc {viewingPeriod.savedAt}
+                  </p>
+                  {viewingPeriod.notes && (
+                    <p className="text-xs text-blue-800 mt-1 flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Ghi chú: {viewingPeriod.notes}</span>
+                    </p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setViewingPeriod(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 block">Số ngày học:</span>
+                  <strong className="text-sm text-slate-900">{viewingPeriod.schoolDaysCount} ngày</strong>
+                </div>
+                <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+                  <span className="text-emerald-800 block">Tỉ lệ chuyên cần:</span>
+                  <strong className="text-sm text-emerald-950">{viewingPeriod.attendanceRate.toFixed(1)}%</strong>
+                </div>
+                <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200">
+                  <span className="text-blue-800 block">Lượt có mặt:</span>
+                  <strong className="text-sm text-blue-950">
+                    {viewingPeriod.totalPresentSessions} lượt ({viewingPeriod.attendanceRate.toFixed(1)}%)
+                  </strong>
+                </div>
+                <div className="bg-rose-50 p-2.5 rounded-xl border border-rose-200">
+                  <span className="text-rose-800 block">Tổng lượt vắng:</span>
+                  <strong className="text-sm text-rose-950">
+                    {viewingPeriod.totalAbsentSessions} lượt ({pAbsRate.toFixed(1)}%)
+                  </strong>
+                </div>
+              </div>
+
+              {viewingPeriod.classStats && viewingPeriod.classStats.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-700 uppercase border-b border-slate-200">
+                    Bảng tổng hợp các lớp đã lưu
+                  </div>
+                  <div className="max-h-60 overflow-y-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-slate-50 text-[10px] font-bold text-slate-500 uppercase sticky top-0">
+                        <tr>
+                          <th className="p-2">Lớp</th>
+                          <th className="p-2 text-center">Số ngày</th>
+                          <th className="p-2 text-center">Lượt có mặt</th>
+                          <th className="p-2 text-center">Lượt vắng</th>
+                          <th className="p-2 text-center">% Có mặt</th>
+                          <th className="p-2 text-center">% Vắng</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {viewingPeriod.classStats.map((c: any) => {
+                          const cAbsRate =
+                            c.absentRate ??
+                            calculatePercentage(c.absentSessions || 0, c.expectedSessions || 0);
+                          return (
+                            <tr key={c.classId}>
+                              <td className="p-2 font-bold text-slate-900">{c.className}</td>
+                              <td className="p-2 text-center">{c.schoolDaysCount ?? c.schoolDaysRecorded ?? 0}</td>
+                              <td className="p-2 text-center font-bold text-emerald-700">{c.presentSessions}</td>
+                              <td className="p-2 text-center font-bold text-rose-700">{c.absentSessions}</td>
+                              <td className="p-2 text-center font-black text-blue-900">{Number(c.attendanceRate || 0).toFixed(1)}%</td>
+                              <td className="p-2 text-center font-bold text-rose-700">{Number(cAbsRate).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {viewingPeriod.versionHistory && viewingPeriod.versionHistory.length > 0 && (
+                <div className="pt-2 border-t">
+                  <div className="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center gap-1.5">
+                    <History className="w-4 h-4 text-blue-600" />
+                    <span>Lịch sử các phiên bản trước đó</span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    {viewingPeriod.versionHistory.map(vh => (
+                      <div key={vh.version} className="bg-slate-50 p-2 rounded-lg border border-slate-200 flex justify-between items-center">
+                        <div>
+                          <strong className="text-slate-900">Phiên bản v{vh.version}</strong>
+                          <div className="text-[11px] text-slate-500">Lưu bởi: {vh.savedBy} lúc {vh.savedAt}</div>
+                          {vh.notes && (
+                            <div className="text-[10px] text-amber-800 italic mt-0.5">Ghi chú: "{vh.notes}"</div>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className="text-emerald-800 font-bold">{vh.presentCount} có mặt</span> · <span className="text-rose-800 font-bold">{vh.absentCount} vắng</span> ({vh.attendanceRate.toFixed(1)}%)
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex justify-end gap-2">
+                {onViewPeriodReport && (
+                  <button
+                    onClick={() => {
+                      const target = viewingPeriod;
+                      setViewingPeriod(null);
+                      onViewPeriodReport(target);
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    Mở tab báo cáo này
+                  </button>
+                )}
+                <button
+                  onClick={() => setViewingPeriod(null)}
+                  className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Đóng
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete Unlocked Snapshot Confirmation */}
       <ConfirmDialog
@@ -664,3 +736,4 @@ export const ReportArchiveView: React.FC<ReportArchiveViewProps> = ({
     </div>
   );
 };
+

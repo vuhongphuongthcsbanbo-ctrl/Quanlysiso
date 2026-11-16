@@ -1,6 +1,6 @@
 import { AttendanceReport, SchoolClass, SessionType, normalizeSession } from '../types';
 import { storageService } from './storageService';
-import { calculateAttendanceRate, filterApprovedReports, isSchoolDay } from './reportCalculationService';
+import { calculateAttendanceRate, calculatePercentage, filterApprovedReports, isSchoolDay } from './reportCalculationService';
 
 export interface WeeklyClassStat {
   classId: string;
@@ -17,6 +17,10 @@ export interface WeeklyClassStat {
   lateCount: number;
   earlyLeaveCount: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
 }
 
 export interface WeeklyAttendanceSummary {
@@ -33,6 +37,10 @@ export interface WeeklyAttendanceSummary {
   totalLateCount: number;
   totalEarlyLeaveCount: number;
   attendanceRate: number;
+  absentRate: number;
+  excusedRate: number;
+  unexcusedRate: number;
+  lateRate: number;
   classStats: WeeklyClassStat[];
   daysBreakdown: Array<{
     date: string;
@@ -41,6 +49,7 @@ export interface WeeklyAttendanceSummary {
     presentCount: number;
     absentCount: number;
     attendanceRate: number;
+    absentRate: number;
     approvedClassesCount: number;
   }>;
 }
@@ -122,6 +131,7 @@ class WeeklyReportService {
       });
 
       const dayRate = calculateAttendanceRate(dayTotal, dayPresent);
+      const dayAbsentRate = calculatePercentage(dayAbsent, dayTotal);
 
       return {
         date: dt,
@@ -130,6 +140,7 @@ class WeeklyReportService {
         presentCount: dayPresent,
         absentCount: dayAbsent,
         attendanceRate: dayRate,
+        absentRate: dayAbsentRate,
         approvedClassesCount: dayReports.length,
       };
     });
@@ -173,6 +184,10 @@ class WeeklyReportService {
       totalEarlyLeaveCount += clsEarly;
 
       const clsRate = calculateAttendanceRate(clsExpected, clsPresent);
+      const clsAbsentRate = calculatePercentage(clsAbsent, clsExpected);
+      const clsExcusedRate = calculatePercentage(clsExcused, clsExpected);
+      const clsUnexcusedRate = calculatePercentage(clsUnexcused, clsExpected);
+      const clsLateRate = calculatePercentage(clsLate, clsExpected);
       const clsStudents = allStudents.filter(s => s.classId === cls.id || s.className === cls.name);
       const avgStudents = clsDaysCount > 0 ? Math.round(clsExpected / clsDaysCount) : clsStudents.length;
 
@@ -191,10 +206,18 @@ class WeeklyReportService {
         lateCount: clsLate,
         earlyLeaveCount: clsEarly,
         attendanceRate: clsRate,
+        absentRate: clsAbsentRate,
+        excusedRate: clsExcusedRate,
+        unexcusedRate: clsUnexcusedRate,
+        lateRate: clsLateRate,
       };
     });
 
     const overallRate = calculateAttendanceRate(totalExpectedSessions, totalPresentSessions);
+    const overallAbsentRate = calculatePercentage(totalAbsentSessions, totalExpectedSessions);
+    const overallExcusedRate = calculatePercentage(totalExcusedSessions, totalExpectedSessions);
+    const overallUnexcusedRate = calculatePercentage(totalUnexcusedSessions, totalExpectedSessions);
+    const overallLateRate = calculatePercentage(totalLateCount, totalExpectedSessions);
 
     return {
       weekLabel: `Từ ${startDate} đến ${endDate}`,
@@ -210,6 +233,10 @@ class WeeklyReportService {
       totalLateCount,
       totalEarlyLeaveCount,
       attendanceRate: overallRate,
+      absentRate: overallAbsentRate,
+      excusedRate: overallExcusedRate,
+      unexcusedRate: overallUnexcusedRate,
+      lateRate: overallLateRate,
       classStats,
       daysBreakdown,
     };

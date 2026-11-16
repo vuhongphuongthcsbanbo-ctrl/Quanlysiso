@@ -3,8 +3,9 @@ import { useAuth } from '../../context/AuthContext';
 import { semesterReportService } from '../../services/semesterReportService';
 import { storageService } from '../../services/storageService';
 import { periodReportService } from '../../services/periodReportService';
+import { calculatePercentage } from '../../services/reportCalculationService';
 import { SessionType, getSessionDisplayName } from '../../types';
-import { CheckCircle2, Save, Lock, Unlock, Clock, History } from 'lucide-react';
+import { CheckCircle2, Save, Lock, Unlock, Clock, History, Sparkles } from 'lucide-react';
 
 interface SemesterAttendanceReportViewProps {
   session: SessionType;
@@ -48,6 +49,15 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
   const settings = storageService.getSettings();
   const schoolYearId = settings.schoolYear || '2026-2027';
 
+  // Tự động lưu báo cáo học kỳ / năm học nếu có dữ liệu mới
+  useEffect(() => {
+    periodReportService.autoSaveSemesterOrYearReport(
+      period,
+      session,
+      currentUser?.name || settings.adminName || 'Hệ thống tự động'
+    );
+  }, [period, session, refreshTick, currentUser?.name, settings.adminName]);
+
   const periodKey = useMemo(
     () => periodReportService.getSemesterPeriodKey(period, schoolYearId, session),
     [period, schoolYearId, session]
@@ -69,16 +79,29 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
 
   const displayData = useMemo(() => {
     if (viewMode === 'SAVED' && savedSnapshot) {
+      const expected = savedSnapshot.totalExpectedSessions;
       return {
         ...reportData,
         totalDaysRecorded: savedSnapshot.schoolDaysCount,
-        totalExpectedSessions: savedSnapshot.totalExpectedSessions,
+        totalExpectedSessions: expected,
         totalPresentSessions: savedSnapshot.totalPresentSessions,
         totalAbsentSessions: savedSnapshot.totalAbsentSessions,
         totalExcusedSessions: savedSnapshot.totalExcusedSessions,
         totalUnexcusedSessions: savedSnapshot.totalUnexcusedSessions,
         totalLateCount: savedSnapshot.totalLateCount,
         attendanceRate: savedSnapshot.attendanceRate,
+        absentRate:
+          savedSnapshot.absentRate ??
+          calculatePercentage(savedSnapshot.totalAbsentSessions, expected),
+        excusedRate:
+          savedSnapshot.excusedRate ??
+          calculatePercentage(savedSnapshot.totalExcusedSessions, expected),
+        unexcusedRate:
+          savedSnapshot.unexcusedRate ??
+          calculatePercentage(savedSnapshot.totalUnexcusedSessions, expected),
+        lateRate:
+          savedSnapshot.lateRate ??
+          calculatePercentage(savedSnapshot.totalLateCount, expected),
         gradeStats: savedSnapshot.gradeStats || reportData.gradeStats,
         classStats: savedSnapshot.classStats || reportData.classStats,
       };
@@ -123,6 +146,19 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
     }
   };
 
+  const totalGradeStudents = displayData.gradeStats.reduce(
+    (sum: number, g: any) => sum + (g.totalStudents || 0),
+    0
+  );
+  const totalGradeClasses = displayData.gradeStats.reduce(
+    (sum: number, g: any) => sum + (g.totalClasses || 0),
+    0
+  );
+  const totalClassStudents = displayData.classStats.reduce(
+    (sum: number, c: any) => sum + (c.totalStudents || 0),
+    0
+  );
+
   return (
     <div className="space-y-4">
       {/* Period Selection & Save Bar */}
@@ -138,22 +174,31 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
                   className={`text-xs font-bold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 ${
                     savedSnapshot.status === 'LOCKED'
                       ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                      : savedSnapshot.isAutoSaved
+                      ? 'bg-indigo-50 text-indigo-800 border border-indigo-200'
                       : 'bg-blue-100 text-blue-900 border border-blue-300'
                   }`}
                 >
                   {savedSnapshot.status === 'LOCKED' ? (
                     <Lock className="w-3 h-3" />
+                  ) : savedSnapshot.isAutoSaved ? (
+                    <Sparkles className="w-3 h-3" />
                   ) : (
                     <CheckCircle2 className="w-3 h-3" />
                   )}
                   <span>
-                    {savedSnapshot.status === 'LOCKED' ? 'Đã chốt khóa' : 'Đã lưu kho'} (v{savedSnapshot.reportVersion})
+                    {savedSnapshot.status === 'LOCKED'
+                      ? 'Đã chốt khóa'
+                      : savedSnapshot.isAutoSaved
+                      ? 'Tự động lưu'
+                      : 'Đã lưu kho'}{' '}
+                    (v{savedSnapshot.reportVersion})
                   </span>
                 </span>
               ) : (
                 <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  <span>Chưa lưu vào kho</span>
+                  <span>Chưa phát sinh dữ liệu duyệt {periodNoun}</span>
                 </span>
               )}
             </div>
@@ -295,7 +340,7 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
       </div>
 
       {/* KPI Cards (Mục XXI, XXII) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         <div className="bg-white rounded-2xl p-4 border border-emerald-200 shadow-xs bg-emerald-50/20">
           <div className="text-[11px] font-bold text-emerald-800 uppercase">
             Tỉ lệ chuyên cần {period === 'FULL_YEAR' ? 'năm' : 'kỳ'}
@@ -306,19 +351,36 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
 
         <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs">
           <div className="text-[11px] font-bold text-slate-500 uppercase">Tổng lượt có mặt</div>
-          <div className="text-2xl font-black text-blue-900 mt-1">{displayData.totalPresentSessions}</div>
-          <div className="text-[10px] text-slate-400 mt-0.5">lượt học sinh</div>
+          <div className="text-2xl font-black text-blue-900 mt-1">
+            {displayData.totalPresentSessions}
+            <span className="text-xs font-extrabold text-blue-700 ml-1">
+              ({displayData.attendanceRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-slate-400 mt-0.5">trên tổng {displayData.totalExpectedSessions} lượt</div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-rose-200 shadow-xs bg-rose-50/20">
           <div className="text-[11px] font-bold text-rose-800 uppercase">Tổng lượt vắng</div>
-          <div className="text-2xl font-black text-rose-950 mt-1">{displayData.totalAbsentSessions}</div>
-          <div className="text-[10px] text-rose-700 mt-0.5">Có phép: {displayData.totalExcusedSessions} · K.Phép: {displayData.totalUnexcusedSessions}</div>
+          <div className="text-2xl font-black text-rose-950 mt-1">
+            {displayData.totalAbsentSessions}
+            <span className="text-xs font-extrabold text-rose-700 ml-1">
+              ({displayData.absentRate.toFixed(1)}%)
+            </span>
+          </div>
+          <div className="text-[10px] text-rose-700 mt-0.5">
+            Phép: {displayData.totalExcusedSessions} ({displayData.excusedRate.toFixed(1)}%) · K.P: {displayData.totalUnexcusedSessions} ({displayData.unexcusedRate.toFixed(1)}%)
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl p-4 border border-purple-200 shadow-xs">
           <div className="text-[11px] font-bold text-purple-800 uppercase">Đi học muộn</div>
-          <div className="text-2xl font-black text-purple-950 mt-1">{displayData.totalLateCount}</div>
+          <div className="text-2xl font-black text-purple-950 mt-1">
+            {displayData.totalLateCount}
+            <span className="text-xs font-extrabold text-purple-700 ml-1">
+              ({displayData.lateRate.toFixed(1)}%)
+            </span>
+          </div>
           <div className="text-[10px] text-purple-700 mt-0.5">lượt trong {period === 'FULL_YEAR' ? 'năm' : 'kỳ'}</div>
         </div>
 
@@ -348,26 +410,48 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
                 <th className="p-3 text-center">Có phép</th>
                 <th className="p-3 text-center">Không phép</th>
                 <th className="p-3 text-center">Đi muộn</th>
-                <th className="p-3 text-center">Tỉ lệ chuyên cần</th>
+                <th className="p-3 text-center">% Có mặt</th>
+                <th className="p-3 text-center">% Vắng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {displayData.gradeStats.map((g: any) => (
-                <tr key={g.grade} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-bold text-slate-900">{g.gradeLabel}</td>
-                  <td className="p-3 text-center text-slate-600">{g.totalClasses} lớp</td>
-                  <td className="p-3 text-center font-medium">{g.totalStudents}</td>
-                  <td className="p-3 text-center font-bold text-emerald-800">{g.presentSessions}</td>
-                  <td className="p-3 text-center font-bold text-rose-800">{g.absentSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{g.excusedSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{g.unexcusedSessions}</td>
-                  <td className="p-3 text-center text-purple-700">{g.lateCount}</td>
-                  <td className="p-3 text-center font-extrabold text-blue-900">
-                    {Number(g.attendanceRate || 0).toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
+              {displayData.gradeStats.map((g: any) => {
+                const gAbsentRate =
+                  g.absentRate ?? calculatePercentage(g.absentSessions || 0, g.expectedSessions || 0);
+                return (
+                  <tr key={g.grade} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-bold text-slate-900">{g.gradeLabel}</td>
+                    <td className="p-3 text-center text-slate-600">{g.totalClasses} lớp</td>
+                    <td className="p-3 text-center font-medium">{g.totalStudents}</td>
+                    <td className="p-3 text-center font-bold text-emerald-800">{g.presentSessions}</td>
+                    <td className="p-3 text-center font-bold text-rose-800">{g.absentSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{g.excusedSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{g.unexcusedSessions}</td>
+                    <td className="p-3 text-center text-purple-700">{g.lateCount}</td>
+                    <td className="p-3 text-center font-extrabold text-blue-900">
+                      {Number(g.attendanceRate || 0).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-center font-bold text-rose-700">
+                      {Number(gAbsentRate).toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-black text-slate-900">
+                <td className="p-3">TỔNG TOÀN TRƯỜNG</td>
+                <td className="p-3 text-center">{totalGradeClasses} lớp</td>
+                <td className="p-3 text-center">{totalGradeStudents} HS</td>
+                <td className="p-3 text-center text-emerald-800">{displayData.totalPresentSessions}</td>
+                <td className="p-3 text-center text-rose-800">{displayData.totalAbsentSessions}</td>
+                <td className="p-3 text-center">{displayData.totalExcusedSessions}</td>
+                <td className="p-3 text-center">{displayData.totalUnexcusedSessions}</td>
+                <td className="p-3 text-center text-purple-800">{displayData.totalLateCount}</td>
+                <td className="p-3 text-center text-blue-900">{displayData.attendanceRate.toFixed(1)}%</td>
+                <td className="p-3 text-center text-rose-700">{displayData.absentRate.toFixed(1)}%</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -376,7 +460,7 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="p-4 border-b border-slate-200">
           <h4 className="text-sm font-bold text-slate-900 uppercase">
-            TỔNG HỢP CHI TIẾT 20 LỚP TRONG {period === 'FULL_YEAR' ? 'NĂM HỌC' : 'HỌC KỲ'}
+            TỔNG HỢP CHI TIẾT {displayData.classStats.length} LỚP TRONG {period === 'FULL_YEAR' ? 'NĂM HỌC' : 'HỌC KỲ'}
           </h4>
         </div>
         <div className="overflow-x-auto">
@@ -392,30 +476,53 @@ export const SemesterAttendanceReportView: React.FC<SemesterAttendanceReportView
                 <th className="p-3 text-center">Có phép</th>
                 <th className="p-3 text-center">Không phép</th>
                 <th className="p-3 text-center">Đi muộn</th>
-                <th className="p-3 text-center">Tỉ lệ chuyên cần</th>
+                <th className="p-3 text-center">% Có mặt</th>
+                <th className="p-3 text-center">% Vắng</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {displayData.classStats.map((c: any) => (
-                <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-3 font-bold text-slate-900">{c.className}</td>
-                  <td className="p-3 text-slate-700">{c.teacherName}</td>
-                  <td className="p-3 text-center font-medium">{c.totalStudents}</td>
-                  <td className="p-3 text-center text-slate-600">{c.schoolDaysRecorded}</td>
-                  <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
-                  <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
-                  <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
-                  <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
-                  <td className="p-3 text-center font-black text-blue-900">
-                    {Number(c.attendanceRate || 0).toFixed(1)}%
-                  </td>
-                </tr>
-              ))}
+              {displayData.classStats.map((c: any) => {
+                const cAbsentRate =
+                  c.absentRate ?? calculatePercentage(c.absentSessions || 0, c.expectedSessions || 0);
+                return (
+                  <tr key={c.classId} className="hover:bg-slate-50 transition-colors">
+                    <td className="p-3 font-bold text-slate-900">{c.className}</td>
+                    <td className="p-3 text-slate-700">{c.teacherName}</td>
+                    <td className="p-3 text-center font-medium">{c.totalStudents}</td>
+                    <td className="p-3 text-center text-slate-600">{c.schoolDaysRecorded}</td>
+                    <td className="p-3 text-center font-bold text-emerald-800">{c.presentSessions}</td>
+                    <td className="p-3 text-center font-bold text-rose-800">{c.absentSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.excusedSessions}</td>
+                    <td className="p-3 text-center text-slate-700">{c.unexcusedSessions}</td>
+                    <td className="p-3 text-center text-purple-700">{c.lateCount}</td>
+                    <td className="p-3 text-center font-black text-blue-900">
+                      {Number(c.attendanceRate || 0).toFixed(1)}%
+                    </td>
+                    <td className="p-3 text-center font-bold text-rose-700">
+                      {Number(cAbsentRate).toFixed(1)}%
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-100/90 border-t-2 border-slate-300 font-black text-slate-900">
+                <td className="p-3" colSpan={2}>TỔNG CỘNG TOÀN TRƯỜNG</td>
+                <td className="p-3 text-center">{totalClassStudents} HS</td>
+                <td className="p-3 text-center">{displayData.totalDaysRecorded} ngày</td>
+                <td className="p-3 text-center text-emerald-800">{displayData.totalPresentSessions}</td>
+                <td className="p-3 text-center text-rose-800">{displayData.totalAbsentSessions}</td>
+                <td className="p-3 text-center">{displayData.totalExcusedSessions}</td>
+                <td className="p-3 text-center">{displayData.totalUnexcusedSessions}</td>
+                <td className="p-3 text-center text-purple-800">{displayData.totalLateCount}</td>
+                <td className="p-3 text-center text-blue-900">{displayData.attendanceRate.toFixed(1)}%</td>
+                <td className="p-3 text-center text-rose-700">{displayData.absentRate.toFixed(1)}%</td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
     </div>
   );
 };
+

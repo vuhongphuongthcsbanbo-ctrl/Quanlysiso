@@ -352,6 +352,11 @@ export interface SchoolDailyReport {
   nonBoardingTotalSnapshot?: number; // Snapshot tổng ngoại trú (Mục LXI)
   nonBoardingPresent: number;
   nonBoardingAbsent: number;
+  attendanceRate?: number;
+  absentRate?: number;
+  boardingRate?: number;
+  nonBoardingRate?: number;
+  isAutoSaved?: boolean;
   finalizedAt?: string;
   finalizedBy?: string;
   finalizedByTitle?: string;
@@ -375,6 +380,8 @@ export interface SchoolDailyReport {
     nonBoardingTotal: number;
     nonBoardingPresent: number;
     nonBoardingAbsent: number;
+    attendanceRate?: number;
+    absentRate?: number;
     status: ReportStatus;
   }>;
   notes?: string;
@@ -656,6 +663,12 @@ export interface SavedPeriodReport {
   boardingPresent?: number;
   boardingAbsent?: number;
   attendanceRate: number;
+  absentRate?: number;
+  excusedRate?: number;
+  unexcusedRate?: number;
+  lateRate?: number;
+  boardingRate?: number;
+  isAutoSaved?: boolean;
   studentsWithAbsenceCount?: number;
   gradeStats?: any[];
   classStats: any[];

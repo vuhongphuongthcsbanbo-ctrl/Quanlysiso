@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { storageService } from './services/storageService';
 import { supabaseService } from './services/supabaseService';
+import { periodReportService } from './services/periodReportService';
 import { Header } from './components/common/Header';
 import { Sidebar, PageId } from './components/common/Sidebar';
 import { MobileBottomBar } from './components/common/MobileBottomBar';
@@ -66,9 +67,20 @@ const MainLayout: React.FC = () => {
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
 
   useEffect(() => {
-    storageService.syncFromServer().catch(() => {});
+    periodReportService.reconcileAllAutoSavedReports(currentUser?.name || 'Hệ thống tự động');
+    storageService
+      .syncFromServer()
+      .then(() => {
+        periodReportService.reconcileAllAutoSavedReports(currentUser?.name || 'Hệ thống tự động');
+      })
+      .catch(() => {});
     const unsub = supabaseService.subscribeToRealtimeChanges();
-    supabaseService.pullFromSupabase().catch(() => {});
+    supabaseService
+      .pullFromSupabase()
+      .then(() => {
+        periodReportService.reconcileAllAutoSavedReports(currentUser?.name || 'Hệ thống tự động');
+      })
+      .catch(() => {});
     return () => {
       unsub();
     };

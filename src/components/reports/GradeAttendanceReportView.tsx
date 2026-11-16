@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { dailyReportService, GradeGroupSummary } from '../../services/dailyReportService';
-import { SessionType } from '../../types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { dailyReportService } from '../../services/dailyReportService';
+import { SessionType, getSessionDisplayName } from '../../types';
 import { formatVietnameseDate, getTodayDateString } from '../../utils/formatters';
-import { Building2, Calendar, CheckCircle2 } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 
 interface GradeAttendanceReportViewProps {
   currentDate: string;
@@ -15,10 +15,21 @@ export const GradeAttendanceReportView: React.FC<GradeAttendanceReportViewProps>
 }) => {
   const [selectedDate, setSelectedDate] = useState<string>(currentDate);
   const [selectedGrade, setSelectedGrade] = useState<number | 'ALL'>('ALL');
+  const [refreshTick, setRefreshTick] = useState(0);
+
+  useEffect(() => {
+    const onChanged = () => setRefreshTick(t => t + 1);
+    window.addEventListener('thcs_banbo_reports_changed', onChanged);
+    window.addEventListener('thcs_banbo_students_changed', onChanged);
+    return () => {
+      window.removeEventListener('thcs_banbo_reports_changed', onChanged);
+      window.removeEventListener('thcs_banbo_students_changed', onChanged);
+    };
+  }, []);
 
   const reportData = useMemo(() => {
     return dailyReportService.getDailyAttendanceReport(selectedDate, session);
-  }, [selectedDate, session]);
+  }, [selectedDate, session, refreshTick]);
 
   const displayedGrades = useMemo(() => {
     if (selectedGrade === 'ALL') return reportData.gradeGroups;
@@ -37,7 +48,7 @@ export const GradeAttendanceReportView: React.FC<GradeAttendanceReportViewProps>
             TÌNH HÌNH SĨ SỐ 4 KHỐI (KHỐI 6, 7, 8, 9)
           </h3>
           <p className="text-xs text-slate-500 mt-0.5">
-            Ngày {formatVietnameseDate(selectedDate)} · Buổi sáng · Tổng cộng 20 lớp (mỗi khối 5 lớp A1–A5)
+            Ngày {formatVietnameseDate(selectedDate)} · {getSessionDisplayName(session)} · Tổng cộng {reportData.totalClasses} lớp
           </p>
         </div>
 
@@ -90,30 +101,30 @@ export const GradeAttendanceReportView: React.FC<GradeAttendanceReportViewProps>
                 </div>
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900 uppercase">
-                    {g.gradeLabel} (5 LỚP: {g.grade}A1 – {g.grade}A5)
+                    {g.gradeLabel} ({g.totalClassesCount} LỚP)
                   </h4>
                   <div className="text-[11px] text-slate-500">
-                    Đã duyệt: {g.approvedClassesCount}/{g.totalClassesCount} lớp · Sĩ số: {g.totalStudents} HS
+                    Đã duyệt: {g.approvedClassesCount}/{g.totalClassesCount} lớp ({g.approvedClassesRate.toFixed(1)}%) · Sĩ số: {g.totalStudents} HS
                   </div>
                 </div>
               </div>
 
-              {/* Grade Stats Pill */}
-              <div className="flex flex-wrap items-center gap-3 text-xs">
+              {/* Grade Stats */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                   <span className="text-slate-500">Có mặt:</span>{' '}
                   <strong className="text-emerald-800 font-bold">{g.presentCount}</strong>
                 </div>
                 <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                   <span className="text-slate-500">Vắng:</span>{' '}
-                  <strong className="text-rose-800 font-bold">{g.absentCount}</strong>
+                  <strong className="text-rose-800 font-bold">{g.absentCount} ({g.absentRate.toFixed(1)}%)</strong>
                 </div>
                 <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200">
                   <span className="text-slate-500">Bán trú:</span>{' '}
-                  <strong className="text-purple-800 font-bold">{g.boardingPresent}/{g.boardingTotal}</strong>
+                  <strong className="text-purple-800 font-bold">{g.boardingPresent}/{g.boardingTotal} ({g.boardingRate.toFixed(1)}%)</strong>
                 </div>
                 <div className="bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                  <span className="text-slate-500">Tỉ lệ:</span>{' '}
+                  <span className="text-slate-500">Tỉ lệ có mặt:</span>{' '}
                   <strong className="text-blue-900 font-extrabold">{g.attendanceRate.toFixed(1)}%</strong>
                 </div>
               </div>
@@ -134,6 +145,8 @@ export const GradeAttendanceReportView: React.FC<GradeAttendanceReportViewProps>
                     <th className="p-3 text-center">Đi muộn</th>
                     <th className="p-3 text-center">Bán trú</th>
                     <th className="p-3 text-center">Ngoại trú</th>
+                    <th className="p-3 text-center">% Có mặt</th>
+                    <th className="p-3 text-center">% Vắng</th>
                     <th className="p-3 text-center">Trạng thái</th>
                   </tr>
                 </thead>
@@ -163,6 +176,12 @@ export const GradeAttendanceReportView: React.FC<GradeAttendanceReportViewProps>
                       </td>
                       <td className="p-3 text-center text-slate-700">
                         {c.isApproved ? `${c.nonBoardingPresent}/${c.nonBoardingTotal}` : '--'}
+                      </td>
+                      <td className="p-3 text-center font-extrabold text-blue-900">
+                        {c.isApproved ? `${c.attendanceRate.toFixed(1)}%` : '--'}
+                      </td>
+                      <td className="p-3 text-center font-bold text-rose-700">
+                        {c.isApproved ? `${c.absentRate.toFixed(1)}%` : '--'}
                       </td>
                       <td className="p-3 text-center">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${

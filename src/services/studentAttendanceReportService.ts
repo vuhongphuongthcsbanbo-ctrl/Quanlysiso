@@ -141,7 +141,10 @@ class StudentAttendanceReportService {
       }
     });
 
-    const attendanceRate = calculateAttendanceRate(totalRequiredSessions, totalPresentSessions);
+    const attendanceRate =
+      totalRequiredSessions > 0
+        ? calculateAttendanceRate(totalRequiredSessions, totalPresentSessions)
+        : 100;
 
     return {
       student,
